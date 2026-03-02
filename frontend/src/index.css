@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-cyber-teal: #2dd4bf;
+  --color-cyber-amber: #f59e0b;
+  --color-cyber-black: #020617;
+  --color-cyber-gray: #0f172a;
+  --color-cyber-light: #f4f6f8;
+  --color-primary: #2dd4bf;
+  --color-secondary: #09090b;
+  --color-accent: #f59e0b;
+
+  --animate-pulse-slow: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+:root {
+}
+
+body {
+  font-family: "Inter", sans-serif;
+  @apply bg-gradient-to-br from-[#e2e8f0] to-cyber-light dark:from-cyber-gray dark:to-cyber-black text-slate-900 dark:text-gray-100 min-h-screen bg-fixed bg-no-repeat;
+}
