@@ -15,12 +15,26 @@ dotenv.config();
 
 connectDB();
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://the-last-episode.onrender.com",
+  "https://the-last-episode.onrender.com/",
+];
+
 const app = express();
 const server = http.createServer(app);
+
+if (process.env.FRONTEND_URL) {
+  const url = process.env.FRONTEND_URL.replace(/\/$/, "");
+  allowedOrigins.push(url);
+  allowedOrigins.push(`${url}/`);
+}
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin: allowedOrigins,
     methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
   },
 });
 
@@ -29,7 +43,12 @@ if (process.env.NODE_ENV === "development") {
 }
 
 app.use(express.json());
-app.use(cors());
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+  }),
+);
 
 app.use("/api/users", userRoutes);
 app.use("/api/anime", animeRoutes);
