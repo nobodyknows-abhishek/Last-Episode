@@ -15,6 +15,7 @@ import AnimeDetails from "./pages/AnimeDetails";
 import AuthPage from "./pages/AuthPage";
 import Dashboard from "./pages/Dashboard";
 import SearchPage from "./pages/SearchPage";
+import WatchParty from "./pages/WatchParty";
 import PageTransition from "./components/PageTransition";
 import SmoothScrolling from "./components/SmoothScrolling";
 
@@ -60,6 +61,14 @@ const AnimatedRoutes = () => {
           element={
             <PageTransition>
               <SearchPage />
+            </PageTransition>
+          }
+        />
+        <Route
+          path="/watch/:roomId"
+          element={
+            <PageTransition>
+              <WatchParty />
             </PageTransition>
           }
         />

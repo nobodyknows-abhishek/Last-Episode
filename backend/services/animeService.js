@@ -1,4 +1,6 @@
 const Anime = require("../models/animeModel");
+const Watchlist = require("../models/watchlistModel");
+const Notification = require("../models/notificationModel");
 const jikanService = require("./jikanService");
 
 const syncAnimeData = async () => {
@@ -45,10 +47,33 @@ const syncAnimeData = async () => {
         lastUpdated: new Date(),
       };
 
-      await Anime.findOneAndUpdate({ malId: item.mal_id }, animeData, {
-        upsert: true,
-        returnDocument: "after",
-      });
+      const existingAnime = await Anime.findOne({ malId: item.mal_id });
+      const oldEpisodes = existingAnime ? existingAnime.episodes : 0;
+      const newEpisodes = animeData.episodes || 0;
+
+      const updatedAnime = await Anime.findOneAndUpdate(
+        { malId: item.mal_id },
+        animeData,
+        {
+          upsert: true,
+          returnDocument: "after",
+        },
+      );
+
+      if (existingAnime && newEpisodes > oldEpisodes) {
+        const watchlists = await Watchlist.find({ anime: updatedAnime._id });
+        if (watchlists.length > 0) {
+          const notifications = watchlists.map((w) => ({
+            user: w.user,
+            anime: updatedAnime._id,
+            message: `New episode released for ${updatedAnime.title}! (Ep ${newEpisodes})`,
+            type: "episode_release",
+            isRead: false,
+          }));
+          await Notification.insertMany(notifications);
+        }
+      }
+
       updatedCount++;
       // Respect rate limits: roughly 2 requests / sec
       await jikanService.delay(500);

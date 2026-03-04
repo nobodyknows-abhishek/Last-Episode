@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { LogOut, User, Search, Tv, Menu, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import NotificationMenu from "./NotificationMenu";
 
 const Navbar = () => {
   const { user, logout } = useAuth();
@@ -20,9 +21,9 @@ const Navbar = () => {
             transition={{ duration: 0.5 }}
             className="text-cyber-teal"
           >
-            <Tv size={32} />
+            <img src="/logo.svg" alt="logo" className="h-16 w-20" />
           </motion.div>
-          <span className="text-xl sm:text-2xl font-black bg-gradient-to-r from-cyber-teal to-cyber-amber bg-clip-text text-transparent italic tracking-normal">
+          <span className="text-xl sm:text-2xl font-black bg-linear-to-r from-cyber-teal to-cyber-amber bg-clip-text text-transparent italic tracking-normal">
             LastEpisode
           </span>
         </Link>
@@ -48,6 +49,13 @@ const Navbar = () => {
 
           <div className="h-6 w-px bg-gray-800" />
 
+          {user && (
+            <>
+              <NotificationMenu />
+              <div className="h-6 w-px bg-gray-800 cursor-pointer" />
+            </>
+          )}
+
           {user ? (
             <button
               onClick={() => {
@@ -70,7 +78,8 @@ const Navbar = () => {
         </div>
 
         {/* Mobile Menu Toggle */}
-        <div className="md:hidden flex items-center">
+        <div className="md:hidden flex items-center space-x-4">
+          {user && <NotificationMenu />}
           <button
             onClick={() => setIsOpen(!isOpen)}
             className="text-gray-400 hover:text-white transition-colors"

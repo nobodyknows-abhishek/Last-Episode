@@ -1,4 +1,6 @@
 const Watchlist = require("../models/watchlistModel");
+const Anime = require("../models/animeModel");
+const mongoose = require("mongoose");
 
 const getMyWatchlist = async (req, res) => {
   const watchlist = await Watchlist.find({ user: req.user._id }).populate(
@@ -10,9 +12,19 @@ const getMyWatchlist = async (req, res) => {
 const addToWatchlist = async (req, res) => {
   const { animeId, status, rating, notes } = req.body;
 
+  let actualAnimeId = animeId;
+  const isMongoId = animeId && String(animeId).match(/^[0-9a-fA-F]{24}$/);
+  if (!isMongoId) {
+    const animeDoc = await Anime.findOne({ malId: Number(animeId) });
+    if (!animeDoc) {
+      return res.status(404).json({ message: "Anime not found" });
+    }
+    actualAnimeId = animeDoc._id;
+  }
+
   const exists = await Watchlist.findOne({
     user: req.user._id,
-    anime: animeId,
+    anime: actualAnimeId,
   });
 
   if (exists) {
@@ -25,7 +37,7 @@ const addToWatchlist = async (req, res) => {
   } else {
     const watchlistEntry = new Watchlist({
       user: req.user._id,
-      anime: animeId,
+      anime: actualAnimeId,
       status: status || "Plan to Watch",
       rating: rating || 0,
       notes: notes || "",

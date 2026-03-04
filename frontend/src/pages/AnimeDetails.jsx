@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext.jsx";
 import {
@@ -13,6 +13,9 @@ import {
   MonitorPlay,
   ListVideo,
   Server,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -22,42 +25,16 @@ const AnimeDetails = () => {
   const [episodes, setEpisodes] = useState([]);
   const [streamData, setStreamData] = useState(null);
   const [activeEpisode, setActiveEpisode] = useState(null);
-  const [selectedServer, setSelectedServer] = useState("vidlink.pro");
-  const [showPlayer, setShowPlayer] = useState(false);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const [isInWatchlist, setIsInWatchlist] = useState(false);
-  const playerRef = useRef(null);
+  const navigate = useNavigate();
 
-  const servers = [
-    { id: "vidlink.pro", name: "VidLink Pro (HQ)" },
-    { id: "vidsrc.to", name: "VidSrc To (Primary)" },
-    { id: "vidsrc.me", name: "VidSrc Me (Fallback)" },
-    { id: "vidsrc.cc", name: "VidSrc CC (Alt)" },
-  ];
-
-  const getStreamUrl = (streamInfo, ep) => {
-    if (!streamInfo) return "";
-    const anilistId =
-      streamInfo.alId ||
-      Object.values(streamInfo.Sites || {})
-        .flatMap(Object.values)
-        .find((s) => s.aniId)?.aniId;
-    if (!anilistId) return "";
-
-    switch (selectedServer) {
-      case "vidlink.pro":
-        return `https://vidlink.pro/anime/${anilistId}/${ep}`;
-      case "vidsrc.to":
-        return `https://vidsrc.to/embed/anime/${anilistId}/${ep}`;
-      case "vidsrc.me":
-        return `https://vidsrc.me/embed/anime?anilist=${anilistId}&ep=${ep}`;
-      case "vidsrc.cc":
-        return `https://vidsrc.cc/v2/embed/anime/${anilistId}/${ep}`;
-      default:
-        return `https://vidlink.pro/anime/${anilistId}/${ep}`;
-    }
-  };
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(100);
+  const [episodesLoading, setEpisodesLoading] = useState(false);
 
   useEffect(() => {
     const fetchAnime = async () => {
@@ -66,7 +43,8 @@ const AnimeDetails = () => {
         setAnime(data);
 
         // Fetch episodes in parallel with watchlist check
-        const episodesReq = axios.get(`/api/anime/${id}/episodes`);
+        // Always fetch page 1 initially when loading a new anime
+        const episodesReq = axios.get(`/api/anime/${id}/episodes?page=1`);
         const malsyncReq = axios.get(`/api/anime/malsync/${data.malId || id}`);
         let watchlistReq = null;
 
@@ -86,8 +64,19 @@ const AnimeDetails = () => {
 
         if (episodesRes.data?.data) {
           setEpisodes(episodesRes.data.data);
+          // Set current page explicitly to 1 on initial load
+          setCurrentPage(1);
+
           if (episodesRes.data.data.length > 0) {
-            setActiveEpisode(1); // Default to ep 1
+            // Only set activeEpisode if it's the first page and activeEpisode is null
+            setActiveEpisode(1);
+          }
+          // Set pagination info
+          if (episodesRes.data?.pagination) {
+            setTotalPages(episodesRes.data.pagination.last_visible_page || 1);
+            if (episodesRes.data.pagination.items?.per_page) {
+              setItemsPerPage(episodesRes.data.pagination.items.per_page);
+            }
           }
         }
 
@@ -113,7 +102,33 @@ const AnimeDetails = () => {
     };
 
     fetchAnime();
-  }, [id, user]);
+  }, [id, user]); // Run only on component mount (or id/user change), ignoring currentPage for initial load to avoid loop. But we need to handle page changes.
+
+  // Separate effect for page changes if we want to fetch new episodes without reloading everything else,
+  // or just incorporate page change logic into a function. Let's use a function and only trigger episode fetch.
+
+  const fetchEpisodes = async (page) => {
+    setEpisodesLoading(true);
+    try {
+      const response = await axios.get(
+        `/api/anime/${id}/episodes?page=${page}`,
+      );
+      if (response.data?.data) {
+        setEpisodes(response.data.data);
+        setCurrentPage(page);
+        if (response.data?.pagination) {
+          setTotalPages(response.data.pagination.last_visible_page || 1);
+          if (response.data.pagination.items?.per_page) {
+            setItemsPerPage(response.data.pagination.items.per_page);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching episodes page:", error);
+    } finally {
+      setEpisodesLoading(false);
+    }
+  };
 
   const addToWatchlist = async () => {
     if (!user) return alert("Please login to track anime");
@@ -131,8 +146,17 @@ const AnimeDetails = () => {
     }
   };
 
-  const scrollToPlayer = () => {
-    playerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const createWatchParty = (episodeNum, episodeUrl) => {
+    if (!user) return alert("Please login to create a Watch Party");
+    const roomId = `${id}-${Math.random().toString(36).substring(2, 9)}`;
+    navigate(`/watch/${roomId}`, {
+      state: {
+        animeTitle: anime?.title,
+        episodeNum: episodeNum,
+        videoUrl: episodeUrl || "",
+        malId: anime?.malId,
+      },
+    });
   };
 
   if (loading)
@@ -162,92 +186,41 @@ const AnimeDetails = () => {
       </div>
 
       <div className="container mx-auto px-6 -mt-64 relative z-10 pb-24">
-        {/* CINEMATIC PLAYER SECTION */}
+        {/* WATCH PARTY SECTION */}
         <motion.div
-          ref={playerRef}
           initial={{ y: 50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           className="w-full max-w-6xl mx-auto mb-16"
         >
-          <div className="w-full aspect-video rounded-[40px] overflow-hidden shadow-2xl shadow-cyber-teal/20 border border-gray-100 dark:border-gray-800 bg-black relative group">
-            {!showPlayer ? (
-              <div
-                className="w-full h-full relative cursor-pointer group"
-                onClick={() => setShowPlayer(true)}
+          <div className="w-full aspect-[21/9] rounded-[40px] overflow-hidden shadow-2xl shadow-cyber-amber/20 border border-gray-100 dark:border-gray-800 bg-black relative group">
+            <img
+              src={anime.imageUrl}
+              alt={anime.title}
+              className="w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-700"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-cyber-black via-cyber-black/50 to-transparent" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
+              <Users
+                size={64}
+                className="text-cyber-amber mb-6 drop-shadow-[0_0_15px_rgba(255,170,0,0.5)]"
+              />
+              <h2 className="text-4xl md:text-5xl font-black italic uppercase tracking-widest text-white mb-4">
+                Watch With Friends
+              </h2>
+              <p className="text-gray-300 max-w-2xl mb-8 font-medium">
+                Create a synchronized Watch Party room. Paste any direct video
+                link to stream perfectly in sync with everyone else in the room.
+                Includes live chat and host controls.
+              </p>
+              <button
+                onClick={createWatchParty}
+                className="px-8 py-4 bg-cyber-amber text-cyber-black rounded-full font-black uppercase tracking-widest text-lg hover:scale-105 hover:shadow-[0_0_30px_rgba(255,170,0,0.4)] transition-all flex items-center gap-3"
               >
-                <img
-                  src={anime.imageUrl}
-                  alt={anime.title}
-                  className="w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-700"
-                />
-                <div className="absolute inset-0 bg-cyber-black/40 group-hover:bg-cyber-black/20 transition-colors duration-500" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <motion.div
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    className="w-24 h-24 bg-cyber-teal/90 rounded-full flex items-center justify-center shadow-[0_0_40px_rgba(0,240,255,0.4)] backdrop-blur-md group-hover:bg-cyber-teal transition-all"
-                  >
-                    <Play
-                      size={40}
-                      className="text-cyber-black ml-2"
-                      fill="currentColor"
-                    />
-                  </motion.div>
-                </div>
-              </div>
-            ) : streamData ? (
-              <iframe
-                className="w-full h-full"
-                src={getStreamUrl(streamData, activeEpisode || 1)}
-                title="Anime Player"
-                allowFullScreen
-              ></iframe>
-            ) : anime.trailerUrl ? (
-              <iframe
-                className="w-full h-full"
-                src={`${anime.trailerUrl.replace("watch?v=", "embed/")}?autoplay=0&rel=0`}
-                title="Anime Trailer"
-                allowFullScreen
-              ></iframe>
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100 dark:bg-cyber-gray">
-                <MonitorPlay
-                  size={64}
-                  className="text-cyber-teal mb-4 opacity-50"
-                />
-                <p className="text-xl font-black italic uppercase tracking-widest text-gray-500">
-                  Player Unavailable for this title
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Server Selection UI */}
-          {streamData && showPlayer && (
-            <div className="mt-6 flex flex-col md:flex-row items-center justify-between bg-gray-50 dark:bg-cyber-gray p-4 rounded-3xl border border-gray-100 dark:border-gray-800">
-              <div className="flex items-center space-x-3 mb-4 md:mb-0">
-                <Server className="text-cyber-amber" size={24} />
-                <span className="font-black uppercase tracking-widest text-sm text-gray-500 dark:text-gray-400">
-                  Select Server:
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {servers.map((server) => (
-                  <button
-                    key={server.id}
-                    onClick={() => setSelectedServer(server.id)}
-                    className={`px-6 py-2 rounded-full font-bold text-xs uppercase tracking-widest transition-all shadow-md ${
-                      selectedServer === server.id
-                        ? "bg-cyber-amber text-cyber-black shadow-cyber-amber/30 scale-105"
-                        : "bg-white dark:bg-cyber-black text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 hover:border-cyber-amber/50 border border-transparent"
-                    }`}
-                  >
-                    {server.name}
-                  </button>
-                ))}
-              </div>
+                <Play size={24} fill="currentColor" />
+                Create Room
+              </button>
             </div>
-          )}
+          </div>
         </motion.div>
 
         <div className="flex flex-col lg:flex-row gap-12 max-w-6xl mx-auto">
@@ -266,14 +239,11 @@ const AnimeDetails = () => {
             </div>
 
             <button
-              onClick={() => {
-                setShowPlayer(true);
-                scrollToPlayer();
-              }}
-              className="w-full mt-6 py-5 rounded-3xl font-black uppercase tracking-widest text-sm flex items-center justify-center space-x-3 transition-all bg-cyber-teal text-cyber-black hover:scale-105 shadow-xl shadow-cyber-teal/20"
+              onClick={createWatchParty}
+              className="w-full mt-6 py-5 rounded-3xl font-black uppercase tracking-widest text-sm flex items-center justify-center space-x-3 transition-all bg-cyber-amber text-cyber-black hover:scale-105 shadow-xl shadow-cyber-amber/20"
             >
-              <Play size={20} className="fill-current" />
-              <span>Watch Now</span>
+              <Users size={20} className="fill-current" />
+              <span>Create Watch Party</span>
             </button>
 
             <button
@@ -388,49 +358,88 @@ const AnimeDetails = () => {
                 </h3>
               </div>
 
-              {episodes.length > 0 ? (
+              {episodesLoading ? (
+                <div className="flex justify-center items-center h-40">
+                  <Loader2 className="animate-spin text-cyber-teal" size={40} />
+                </div>
+              ) : episodes.length > 0 ? (
                 <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                  {episodes.map((ep, idx) => (
-                    <div
-                      key={ep.mal_id || idx}
-                      onClick={() => {
-                        setShowPlayer(true);
-                        setActiveEpisode(ep.mal_id || idx + 1);
-                        scrollToPlayer();
-                      }}
-                      className={`flex items-center justify-between p-4 bg-gray-50 dark:bg-cyber-gray rounded-2xl hover:bg-cyber-teal/10 dark:hover:bg-cyber-teal/10 transition-colors group cursor-pointer border ${activeEpisode === (ep.mal_id || idx + 1) ? "border-cyber-teal shadow-lg shadow-cyber-teal/20" : "border-transparent hover:border-cyber-teal/30"}`}
-                    >
-                      <div className="flex items-center space-x-6">
-                        <div
-                          className={`text-2xl font-black ${activeEpisode === (ep.mal_id || idx + 1) ? "text-cyber-teal" : "text-gray-400 dark:text-gray-700"} italic group-hover:text-cyber-teal transition-colors`}
-                        >
-                          {(ep.mal_id || idx + 1).toString().padStart(2, "0")}
-                        </div>
-                        <div>
-                          <h4
-                            className={`text-lg font-bold ${activeEpisode === (ep.mal_id || idx + 1) ? "text-cyber-teal" : "text-cyber-black dark:text-white group-hover:text-cyber-teal"} transition-colors`}
+                  {episodes.map((ep, idx) => {
+                    const globalEpisodeIndex =
+                      (currentPage - 1) * itemsPerPage + idx + 1;
+                    const episodeNum = ep.mal_id || globalEpisodeIndex;
+                    const isSelected =
+                      activeEpisode === episodeNum ||
+                      activeEpisode === globalEpisodeIndex;
+
+                    return (
+                      <div
+                        key={ep.mal_id || idx}
+                        onClick={() => {
+                          createWatchParty(
+                            episodeNum,
+                            "", // Do NOT pass ep.url as it is a webpage, not a video stream
+                          );
+                        }}
+                        className={`flex items-center justify-between p-4 bg-gray-50 dark:bg-cyber-gray rounded-2xl hover:bg-cyber-teal/10 dark:hover:bg-cyber-teal/10 transition-colors group cursor-pointer border ${isSelected ? "border-cyber-teal shadow-lg shadow-cyber-teal/20" : "border-transparent hover:border-cyber-teal/30"}`}
+                      >
+                        <div className="flex items-center space-x-6">
+                          <div
+                            className={`text-2xl font-black ${isSelected ? "text-cyber-teal" : "text-gray-400 dark:text-gray-700"} italic group-hover:text-cyber-teal transition-colors`}
                           >
-                            {ep.title || `Episode ${idx + 1}`}
-                          </h4>
-                          {ep.title_japanese && (
-                            <p className="text-sm text-gray-500">
-                              {ep.title_japanese}
-                            </p>
+                            {globalEpisodeIndex.toString().padStart(2, "0")}
+                          </div>
+                          <div>
+                            <h4
+                              className={`text-lg font-bold ${isSelected ? "text-cyber-teal" : "text-cyber-black dark:text-white group-hover:text-cyber-teal"} transition-colors`}
+                            >
+                              {ep.title || `Episode ${globalEpisodeIndex}`}
+                            </h4>
+                            {ep.title_japanese && (
+                              <p className="text-sm text-gray-500">
+                                {ep.title_japanese}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="hidden md:flex items-center space-x-4 text-sm text-gray-400">
+                          {ep.aired && (
+                            <span>
+                              {new Date(ep.aired).toLocaleDateString()}
+                            </span>
                           )}
+                          <button
+                            className={`w-10 h-10 rounded-full ${isSelected ? "bg-cyber-teal text-cyber-black" : "bg-white dark:bg-black/50 group-hover:bg-cyber-teal group-hover:text-cyber-black"} flex items-center justify-center transition-all`}
+                          >
+                            <Play size={16} className="ml-1" />
+                          </button>
                         </div>
                       </div>
-                      <div className="hidden md:flex items-center space-x-4 text-sm text-gray-400">
-                        {ep.aired && (
-                          <span>{new Date(ep.aired).toLocaleDateString()}</span>
-                        )}
-                        <button
-                          className={`w-10 h-10 rounded-full ${activeEpisode === (ep.mal_id || idx + 1) ? "bg-cyber-teal text-cyber-black" : "bg-white dark:bg-black/50 group-hover:bg-cyber-teal group-hover:text-cyber-black"} flex items-center justify-center transition-all`}
-                        >
-                          <Play size={16} className="ml-1" />
-                        </button>
+                    );
+                  })}
+
+                  {/* Pagination Controls */}
+                  {totalPages > 1 && (
+                    <div className="flex justify-center items-center gap-4 py-4">
+                      <button
+                        onClick={() => fetchEpisodes(currentPage - 1)}
+                        disabled={currentPage === 1 || episodesLoading}
+                        className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 disabled:opacity-50 hover:bg-cyber-teal hover:text-white transition-colors"
+                      >
+                        <ChevronLeft size={24} />
+                      </button>
+                      <div className="text-gray-600 dark:text-gray-300 font-medium font-mono">
+                        Page {currentPage} of {totalPages}
                       </div>
+                      <button
+                        onClick={() => fetchEpisodes(currentPage + 1)}
+                        disabled={currentPage === totalPages || episodesLoading}
+                        className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 disabled:opacity-50 hover:bg-cyber-teal hover:text-white transition-colors"
+                      >
+                        <ChevronRight size={24} />
+                      </button>
                     </div>
-                  ))}
+                  )}
                 </div>
               ) : (
                 <div className="p-8 bg-gray-50 dark:bg-cyber-gray rounded-3xl text-center border border-gray-100 dark:border-gray-800">

@@ -1,0 +1,27 @@
+<svg width="500" height="500" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- Background Circle -->
+  <circle cx="250" cy="250" r="230" fill="#0f0f1a"></circle>
+
+  <!-- Neon Outer Ring -->
+  <circle cx="250" cy="250" r="210" fill="none" stroke="#7f5af0" stroke-width="8"></circle>
+
+  <!-- Crescent Moon Shape -->
+  <path d="
+    M310 150
+    A120 120 0 1 0 310 350
+    A90 90 0 1 1 310 150
+  " fill="#1a1a2e"></path>
+
+  <!-- Play Button (Triangle) -->
+  <polygon points="220,190 340,250 220,310" fill="#7f5af0"></polygon>
+
+  <!-- Infinity Stroke (Subtle Finale Loop) -->
+  <path d="
+    M170 330
+    C140 290, 240 290, 210 330
+    C180 370, 280 370, 250 330
+    C220 290, 320 290, 290 330
+  " fill="none" stroke="#00f5d4" stroke-width="6" stroke-linecap="round"></path>
+
+</svg>
