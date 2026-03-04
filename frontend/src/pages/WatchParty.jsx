@@ -316,15 +316,57 @@ const WatchParty = () => {
 
   const requestStartStream = async () => {
     try {
-      // 1. Get Permission & Stream First (User Gesture)
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 60 },
-        },
-        audio: true,
-      });
+      if (
+        !navigator.mediaDevices ||
+        (!navigator.mediaDevices.getDisplayMedia &&
+          !navigator.mediaDevices.getUserMedia)
+      ) {
+        alert("Your browser doesn't support media sharing.");
+        return;
+      }
+
+      let stream;
+      if (navigator.mediaDevices.getDisplayMedia) {
+        try {
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              frameRate: { ideal: 60 },
+            },
+            audio: true,
+          });
+        } catch (e) {
+          console.log(
+            "getDisplayMedia failed, checking for getUserMedia fallback",
+            e,
+          );
+          // If user cancelled or it's restricted, we might try camera on mobile
+          if (window.innerWidth < 1024) {
+            const confirmCamera = window.confirm(
+              "Screen sharing might not be supported on your mobile device. Would you like to share your camera instead?",
+            );
+            if (confirmCamera) {
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true,
+              });
+            } else {
+              throw e;
+            }
+          } else {
+            throw e;
+          }
+        }
+      } else {
+        // Fallback directly for platforms without getDisplayMedia
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
+      }
+
+      if (!stream) return;
 
       localStreamRef.current = stream;
       setIsSharing(true);
@@ -333,13 +375,17 @@ const WatchParty = () => {
         requestStopStream();
       };
 
-      // 2. Tell Server
       if (socket) {
         socket.emit("start_stream", { roomId });
       }
     } catch (err) {
       console.error("Capture failed or cancelled", err);
       setIsSharing(false);
+      if (err.name !== "NotAllowedError") {
+        alert(
+          "Failed to start sharing. Mobile devices often restrict screen sharing from browsers.",
+        );
+      }
     }
   };
 
