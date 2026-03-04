@@ -11,7 +11,10 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     const newSocket = io(
-      import.meta.env.VITE_BACKEND_URL || "http://localhost:5000",
+      "import.meta.env.VITE_API_URL" || "http://localhost:5000",
+      {
+        transports: ["websocket"],
+      },
     );
     setSocket(newSocket);
 
