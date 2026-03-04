@@ -53,30 +53,83 @@ io.on("connection", (socket) => {
     if (!rooms.has(roomId)) {
       rooms.set(roomId, {
         users: new Map(),
+        streams: new Set(),
         currentVideo: "",
         host: socket.id,
       });
+      console.log(`[Room: ${roomId}] Created by ${user.name} (${socket.id})`);
     }
 
     const room = rooms.get(roomId);
-    room.users.set(socket.id, user);
+
+    // Store user with socket ID reference
+    const socketUser = { ...user, socketId: socket.id };
+    room.users.set(socket.id, socketUser);
 
     // If first user, make them host
     const isHost = room.host === socket.id;
+    console.log(
+      `[Room: ${roomId}] User joined: ${user.name} (${socket.id}). IsHost: ${isHost}. Current Host: ${room.host}`,
+    );
 
     // Send the current room state to the newly joined user
     socket.emit("room_state", {
       users: Array.from(room.users.values()),
+      streams: Array.from(room.streams),
       currentVideo: room.currentVideo,
       host: room.host,
       isHost,
     });
 
     // Notify others that a user joined
-    socket.to(roomId).emit("user_joined", user);
+    socket.to(roomId).emit("user_joined", socketUser);
 
     // Broadcast updated user list
     io.to(roomId).emit("update_users", Array.from(room.users.values()));
+  });
+
+  socket.on("join_user_room", (userId) => {
+    if (userId) {
+      socket.join(userId);
+      console.log(`[Socket: ${socket.id}] Joined personal room: ${userId}`);
+    }
+  });
+
+  // WebRTC Signaling
+  socket.on("offer", (payload) => {
+    io.to(payload.target).emit("offer", payload);
+  });
+
+  socket.on("answer", (payload) => {
+    io.to(payload.target).emit("answer", payload);
+  });
+
+  socket.on("ice-candidate", (incoming) => {
+    io.to(incoming.target).emit("ice-candidate", incoming);
+  });
+
+  // Stream Management
+  socket.on("start_stream", ({ roomId }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    if (room.streams.size >= 2) {
+      socket.emit("stream_error", "Maximum of 2 streams allowed.");
+      return;
+    }
+
+    room.streams.add(socket.id);
+    io.to(roomId).emit("stream_started", socket.id);
+    io.to(roomId).emit("update_streams", Array.from(room.streams));
+  });
+
+  socket.on("stop_stream", ({ roomId }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    room.streams.delete(socket.id);
+    io.to(roomId).emit("stream_stopped", socket.id);
+    io.to(roomId).emit("update_streams", Array.from(room.streams));
   });
 
   socket.on("set_video", ({ roomId, videoUrl }) => {
@@ -124,6 +177,12 @@ io.on("connection", (socket) => {
       if (room.users.has(socket.id)) {
         const user = room.users.get(socket.id);
         room.users.delete(socket.id);
+
+        if (room.streams.has(socket.id)) {
+          room.streams.delete(socket.id);
+          io.to(roomId).emit("stream_stopped", socket.id);
+          io.to(roomId).emit("update_streams", Array.from(room.streams));
+        }
 
         socket.to(roomId).emit("user_left", user);
 

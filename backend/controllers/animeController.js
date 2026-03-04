@@ -14,19 +14,36 @@ const getAnimes = async (req, res) => {
   }
 
   if (req.query.status) {
-    filter.status = req.query.status;
+    const statusMap = {
+      airing: "Currently Airing",
+      completed: "Finished Airing",
+      upcoming: "Not yet aired",
+    };
+    const key = req.query.status.toLowerCase();
+    const mappedStatus = statusMap[key] || req.query.status;
+    console.log(
+      `Status Filter: Received '${req.query.status}' -> Mapped to '${mappedStatus}'`,
+    );
+    filter.status = mappedStatus;
   }
 
   if (req.query.genre) {
-    filter.genres = req.query.genre;
+    const genres = req.query.genre.split(",");
+    if (genres.length > 1) {
+      filter.genres = { $in: genres };
+    } else {
+      filter.genres = genres[0];
+    }
   }
+
+  console.log("Constructed Filter:", JSON.stringify(filter, null, 2));
 
   try {
     const count = await Anime.countDocuments(filter);
     const animes = await Anime.find(filter)
       .limit(pageSize)
       .skip(pageSize * (page - 1))
-      .sort({ score: -1, popularity: 1 });
+      .sort({ score: -1, popularity: 1, _id: 1 });
 
     res.json({
       animes,
@@ -105,9 +122,14 @@ const getAnimeById = async (req, res) => {
 };
 
 const getTrendingAnimes = async (req, res) => {
+  const limit = Number(req.query.limit) || 10;
+  const page = Number(req.query.page) || 1;
+  const skip = (page - 1) * limit;
+
   const animes = await Anime.find({ isAiring: true })
-    .limit(10)
-    .sort({ score: -1 });
+    .skip(skip)
+    .limit(limit)
+    .sort({ score: -1, _id: 1 });
   res.json(animes);
 };
 
@@ -145,12 +167,19 @@ const getAnimeEpisodes = async (req, res) => {
 const searchAnimeGlobally = async (req, res) => {
   console.log("searchAnimeGlobally called with query:", req.query);
   try {
-    const query = req.query.q;
+    const query = req.query.q || ""; // Allow empty q
     const page = req.query.page || 1;
-    if (!query)
-      return res.status(400).json({ message: "Query string 'q' is required" });
 
-    const data = await fetchAnimeSearch(query, page);
+    // Extract filters from request query
+    const filters = {
+      status: req.query.status,
+      genres: req.query.genre, // Note frontend sends 'genre' comma-separated
+    };
+
+    // If no query and no filters, maybe return error or default?
+    // Jikan returns top/default list if q is empty, which is fine.
+
+    const data = await fetchAnimeSearch(query, page, filters);
     res.json(data);
   } catch (error) {
     console.error(
@@ -170,11 +199,14 @@ const getMalsyncData = async (req, res) => {
     const { data } = await axios.get(url);
     res.json(data);
   } catch (error) {
-    console.error("getMalsyncData error:",
-      error.response ? {
-        status: error.response.status,
-        data: error.response.data,
-      } : error.message,
+    console.error(
+      "getMalsyncData error:",
+      error.response
+        ? {
+            status: error.response.status,
+            data: error.response.data,
+          }
+        : error.message,
     );
     // If upstream responded with a status, forward it; otherwise use 502
     const status = error.response?.status || 502;

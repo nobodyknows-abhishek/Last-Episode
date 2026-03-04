@@ -2,14 +2,29 @@ import React, { useState, useEffect, useRef } from "react";
 import { Bell, Check, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
+import { useSocket } from "../context/SocketContext";
 import { notificationService } from "../services/notificationService";
 
 const NotificationMenu = () => {
   const { user } = useAuth();
+  const { socket } = useSocket();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const menuRef = useRef(null);
+
+  // Real-time notifications listener
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleNewNotification = (notif) => {
+      setNotifications((prev) => [notif, ...prev]);
+      setUnreadCount((prev) => prev + 1);
+    };
+
+    socket.on("new_notification", handleNewNotification);
+    return () => socket.off("new_notification", handleNewNotification);
+  }, [socket]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -35,7 +50,7 @@ const NotificationMenu = () => {
 
   useEffect(() => {
     fetchNotifications();
-    // Poll every 5 minutes
+    // Keep interval as backup, but real-time is primary now
     const interval = setInterval(fetchNotifications, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [user]);

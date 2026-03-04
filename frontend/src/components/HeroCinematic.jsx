@@ -41,7 +41,7 @@ const HeroCinematic = ({ animes }) => {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 1.2, ease: "easeInOut" }}
-            className="absolute inset-0 bg-cover bg-top md:bg-center"
+            className="absolute inset-0 bg-cover  md:bg-center"
             style={{
               backgroundImage: `url(${animes[currentIndex]?.bannerImage || animes[currentIndex]?.imageUrl})`,
             }}
@@ -59,7 +59,7 @@ const HeroCinematic = ({ animes }) => {
           className="p-3 md:p-4 rounded-full bg-black/20 hover:bg-cyber-teal border border-white/10 hover:border-cyber-teal backdrop-blur-md text-white hover:text-cyber-black transition-all duration-300 group"
         >
           <ChevronLeft
-            size={32}
+            size={20}
             className="group-hover:-translate-x-1 transition-transform"
           />
         </button>
@@ -71,7 +71,7 @@ const HeroCinematic = ({ animes }) => {
           className="p-3 md:p-4 rounded-full bg-black/20 hover:bg-cyber-teal border border-white/10 hover:border-cyber-teal backdrop-blur-md text-white hover:text-cyber-black transition-all duration-300 group"
         >
           <ChevronRight
-            size={32}
+            size={20}
             className="group-hover:translate-x-1 transition-transform"
           />
         </button>

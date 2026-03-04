@@ -148,12 +148,20 @@ const AnimeDetails = () => {
 
   const createWatchParty = (episodeNum, episodeUrl) => {
     if (!user) return alert("Please login to create a Watch Party");
+
+    // Ensure episodeNum is primitive value, default to 1 if it's an event object
+    const startEpisode =
+      typeof episodeNum === "number" || typeof episodeNum === "string"
+        ? episodeNum
+        : 1;
+    const startUrl = typeof episodeUrl === "string" ? episodeUrl : "";
+
     const roomId = `${id}-${Math.random().toString(36).substring(2, 9)}`;
     navigate(`/watch/${roomId}`, {
       state: {
         animeTitle: anime?.title,
-        episodeNum: episodeNum,
-        videoUrl: episodeUrl || "",
+        episodeNum: startEpisode,
+        videoUrl: startUrl,
         malId: anime?.malId,
       },
     });
@@ -181,42 +189,41 @@ const AnimeDetails = () => {
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url(${anime.imageUrl})` }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-white dark:from-cyber-black via-white/80 dark:via-cyber-black/80 to-transparent" />
-        <div className="absolute inset-0 backdrop-blur-[8px]" />
+        <div className="absolute inset-0 bg-gradient-to-t from-white dark:from-cyber-black via-white/40 dark:via-cyber-black/40 to-transparent" />
+        <div className="absolute inset-0 backdrop-blur-xs sm:backdrop-blur-sm" />
       </div>
 
-      <div className="container mx-auto px-6 -mt-64 relative z-10 pb-24">
+      <div className="container mx-auto px-4 sm:px-6 -mt-32 sm:-mt-64 relative z-10 pb-24">
         {/* WATCH PARTY SECTION */}
         <motion.div
           initial={{ y: 50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           className="w-full max-w-6xl mx-auto mb-16"
         >
-          <div className="w-full aspect-[21/9] rounded-[40px] overflow-hidden shadow-2xl shadow-cyber-amber/20 border border-gray-100 dark:border-gray-800 bg-black relative group">
+          <div className="w-full aspect-square sm:aspect-21/9 rounded-3xl sm:rounded-[40px] overflow-hidden shadow-2xl shadow-cyber-amber/20 border border-gray-100 dark:border-gray-800 bg-black relative group">
             <img
               src={anime.imageUrl}
               alt={anime.title}
               className="w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-700"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-cyber-black via-cyber-black/50 to-transparent" />
-            <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
+            <div className="absolute inset-0 bg-gradient-to-t from-cyber-black via-cyber-black/60 to-transparent" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center p-6 sm:p-8 text-center">
               <Users
-                size={64}
-                className="text-cyber-amber mb-6 drop-shadow-[0_0_15px_rgba(255,170,0,0.5)]"
+                size={48}
+                className="text-cyber-amber mb-4 sm:mb-6 drop-shadow-[0_0_15px_rgba(255,170,0,0.5)] sm:w-16 sm:h-16"
               />
-              <h2 className="text-4xl md:text-5xl font-black italic uppercase tracking-widest text-white mb-4">
+              <h2 className="text-2xl sm:text-4xl md:text-5xl font-black italic uppercase tracking-widest text-white mb-2 sm:mb-4">
                 Watch With Friends
               </h2>
-              <p className="text-gray-300 max-w-2xl mb-8 font-medium">
+              <p className="text-gray-400 sm:text-gray-300 text-xs sm:text-base max-w-2xl mb-6 sm:mb-8 font-medium line-clamp-3 sm:line-clamp-none">
                 Create a synchronized Watch Party room. Paste any direct video
-                link to stream perfectly in sync with everyone else in the room.
-                Includes live chat and host controls.
+                link to stream perfectly in sync with everyone else.
               </p>
               <button
                 onClick={createWatchParty}
-                className="px-8 py-4 bg-cyber-amber text-cyber-black rounded-full font-black uppercase tracking-widest text-lg hover:scale-105 hover:shadow-[0_0_30px_rgba(255,170,0,0.4)] transition-all flex items-center gap-3"
+                className="px-6 py-3 sm:px-8 sm:py-4 bg-cyber-amber text-cyber-black rounded-full font-black uppercase tracking-widest text-sm sm:text-lg hover:scale-105 hover:shadow-[0_0_30px_rgba(255,170,0,0.4)] transition-all flex items-center gap-2 sm:gap-3"
               >
-                <Play size={24} fill="currentColor" />
+                <Play size={20} fill="currentColor" />
                 Create Room
               </button>
             </div>
@@ -230,7 +237,7 @@ const AnimeDetails = () => {
             animate={{ y: 0, opacity: 1 }}
             className="w-full lg:w-80 shrink-0"
           >
-            <div className="rounded-[40px] overflow-hidden shadow-2xl border-4 border-white dark:border-cyber-gray">
+            <div className="rounded-3xl sm:rounded-[40px] overflow-hidden shadow-2xl border-2 sm:border-4 border-white dark:border-cyber-gray max-w-70 mx-auto lg:max-w-none">
               <img
                 src={anime.imageUrl}
                 alt={anime.title}
@@ -280,7 +287,7 @@ const AnimeDetails = () => {
                   </span>
                 ))}
               </div>
-              <h1 className="text-4xl sm:text-5xl md:text-7xl font-black dark:text-white uppercase italic tracking-tighter leading-[0.95] mb-6">
+              <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-black dark:text-white uppercase italic tracking-tighter leading-[0.9] mb-8 drop-shadow-sm">
                 {anime.title}
               </h1>
 
@@ -335,10 +342,10 @@ const AnimeDetails = () => {
               viewport={{ once: true }}
               className="bg-gray-50 dark:bg-cyber-gray p-8 rounded-[40px] border border-gray-100 dark:border-gray-800"
             >
-              <h3 className="text-2xl font-black dark:text-white uppercase italic tracking-widest mb-6 border-l-4 border-cyber-teal pl-6">
+              <h3 className="text-xl sm:text-2xl font-black dark:text-white uppercase italic tracking-widest mb-6 border-l-4 border-cyber-teal pl-6">
                 Synopsis
               </h3>
-              <p className="text-lg text-gray-600 dark:text-gray-400 font-medium leading-relaxed">
+              <p className="text-base sm:text-lg text-gray-600 dark:text-gray-400 font-medium leading-relaxed">
                 {anime.synopsis
                   ?.replace("[Written by MAL Rewrite]", "")
                   ?.trim()}

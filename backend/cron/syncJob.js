@@ -5,7 +5,7 @@ const initCronJobs = (io) => {
   // Run initial sync
   console.log("Triggering initial Anime Sync...");
   animeService
-    .syncAnimeData()
+    .syncAnimeData(io)
     .then(() => {
       if (io)
         io.emit("anime_updated", { message: "Initial database sync complete" });
@@ -17,7 +17,7 @@ const initCronJobs = (io) => {
   cron.schedule("0 0 */12 * * *", async () => {
     console.log("Running 12-hour Anime Sync Job...");
     try {
-      await animeService.syncAnimeData();
+      await animeService.syncAnimeData(io);
       if (io) {
         io.emit("anime_updated", {
           message: "Database updated with latest anime data",

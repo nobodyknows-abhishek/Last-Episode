@@ -9,6 +9,7 @@ import {
   User,
   Shield,
   Zap,
+  Check,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -49,6 +50,25 @@ const Dashboard = () => {
       setWatchlist(watchlist.filter((item) => item._id !== id));
     } catch (error) {
       console.error("Error removing item:", error);
+    }
+  };
+
+  const handleUpdateStatus = async (id, newStatus) => {
+    try {
+      const { data } = await axios.put(
+        `/api/watchlist/${id}`,
+        { status: newStatus },
+        {
+          headers: { Authorization: `Bearer ${user.token}` },
+        },
+      );
+      setWatchlist(
+        watchlist.map((item) =>
+          item._id === id ? { ...item, status: newStatus } : item,
+        ),
+      );
+    } catch (error) {
+      console.error("Error updating status:", error);
     }
   };
 
@@ -100,7 +120,7 @@ const Dashboard = () => {
             <div className="h-10 w-px bg-gray-200 dark:bg-gray-800" />
             <div className="text-center px-4">
               <div className="text-3xl font-black text-cyber-amber italic">
-                0
+                {watchlist.filter((item) => item.status === "Completed").length}
               </div>
               <div className="text-[10px] font-black uppercase tracking-widest text-gray-400">
                 Completed
@@ -168,9 +188,16 @@ const Dashboard = () => {
                       {item.anime.title}
                     </h3>
                     <div className="flex items-center justify-center md:justify-start space-x-4">
-                      <span className="text-[10px] font-black uppercase tracking-widest bg-cyber-teal/10 text-cyber-teal px-3 py-1 rounded-full">
-                        {item.status}
-                      </span>
+                      {item.status === "Completed" ? (
+                        <span className="text-[10px] font-black uppercase tracking-widest bg-cyber-amber/10 text-cyber-amber px-3 py-1 rounded-full flex items-center gap-1">
+                          <Check size={10} /> {item.status}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-black uppercase tracking-widest bg-cyber-teal/10 text-cyber-teal px-3 py-1 rounded-full">
+                          {item.status}
+                        </span>
+                      )}
+
                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                         Added to archives:{" "}
                         {new Date(item.createdAt).toLocaleDateString()}
@@ -185,6 +212,17 @@ const Dashboard = () => {
                     >
                       <ExternalLink size={20} />
                     </Link>
+                    {item.status !== "Completed" && (
+                      <button
+                        onClick={() =>
+                          handleUpdateStatus(item._id, "Completed")
+                        }
+                        title="Mark as Completed"
+                        className="p-5 bg-cyber-amber/10 text-cyber-amber hover:bg-cyber-amber/20 rounded-2xl transition-all"
+                      >
+                        <Check size={20} />
+                      </button>
+                    )}
                     <button
                       onClick={() => handleRemove(item._id)}
                       className="p-5 bg-red-500/5 text-red-500/20 hover:text-red-500 hover:bg-red-500/10 rounded-2xl transition-all"

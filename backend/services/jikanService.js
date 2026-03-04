@@ -49,14 +49,63 @@ const fetchAnimeEpisodes = async (id, page = 1) => {
   }
 };
 
-const fetchAnimeSearch = async (query, page = 1) => {
+const genreMap = {
+  Action: 1,
+  Adventure: 2,
+  Comedy: 4,
+  Drama: 8,
+  Fantasy: 10,
+  Horror: 14,
+  Mystery: 7,
+  Romance: 22,
+  "Sci-Fi": 24,
+  Sports: 30,
+  Supernatural: 37,
+  "Slice of Life": 36,
+  Suspense: 41,
+  "Award Winning": 46,
+};
+
+const fetchAnimeSearch = async (query, page = 1, filters = {}) => {
+  // Build base URL
+  let url = `${JIKAN_BASE_URL}/anime?page=${page}`;
+
+  if (query) {
+    url += `&q=${encodeURIComponent(query)}`;
+  } else if (!filters.genres && !filters.status) {
+    // No query and no filters: default discovery mode (new to old)
+    url += `&order_by=popularity&sort=asc`;
+  }
+
+  if (filters.status) {
+    const statusMap = {
+      airing: "airing",
+      completed: "complete",
+      upcoming: "upcoming",
+    };
+    const mapped = statusMap[filters.status.toLowerCase()];
+    if (mapped) url += `&status=${mapped}`;
+  }
+
+  if (filters.genres) {
+    const genreNames = filters.genres.split(",");
+    const genreIds = genreNames
+      .map((g) => genreMap[g.trim()])
+      .filter((id) => id)
+      .join(",");
+
+    if (genreIds) url += `&genres=${genreIds}`;
+  }
+
   try {
-    const response = await axios.get(
-      `${JIKAN_BASE_URL}/anime?q=${encodeURIComponent(query)}&page=${page}`,
-    );
+    console.log(`Jikan Search URL: ${url}`);
+    const response = await axios.get(url);
     return response.data;
   } catch (error) {
     console.error(`Error searching anime ${query}:`, error.message);
+    if (error.response && error.response.status === 404) {
+      return { data: [], pagination: {} };
+    }
     throw error;
   }
 };

@@ -1,23 +1,20 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { io } from "socket.io-client";
+import io from "socket.io-client";
+import EmojiPicker from "emoji-picker-react";
 import {
-  Play,
-  Pause,
-  Volume2,
-  VolumeX,
-  Maximize,
   Users,
   MessageSquare,
   Send,
-  Link as LinkIcon,
   Copy,
   Check,
+  Monitor,
+  VideoOff,
+  Smile,
+  Search,
+  Image as ImageIcon,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-import axios from "axios";
-import ReactPlayer from "react-player";
 
 const SOCKET_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
@@ -27,7 +24,7 @@ const WatchParty = () => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
 
-  // Location state (from AnimeDetails)
+  // Location state
   const [animeTitle, setAnimeTitle] = useState(
     location.state?.animeTitle || "Watch Party",
   );
@@ -37,52 +34,172 @@ const WatchParty = () => {
 
   const [socket, setSocket] = useState(null);
   const [roomUsers, setRoomUsers] = useState([]);
-  const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState("");
-  const [isHost, setIsHost] = useState(false);
-  const [currentVideo, setCurrentVideo] = useState(
-    location.state?.videoUrl || "",
-  );
-  const [videoInput, setVideoInput] = useState("");
-  const [activeTab, setActiveTab] = useState("chat"); // 'chat' | 'users'
-  const [copied, setCopied] = useState(false);
+  const roomUsersRef = useRef([]); // Access latest users in socket events
 
-  // Initialize from location state if available
   useEffect(() => {
-    if (location.state) {
-      if (location.state.animeTitle) setAnimeTitle(location.state.animeTitle);
-      if (location.state.episodeNum) setEpisodeNum(location.state.episodeNum);
-      if (location.state.videoUrl) {
-        setCurrentVideo(location.state.videoUrl);
-        setVideoInput(location.state.videoUrl);
-      }
+    roomUsersRef.current = roomUsers;
+  }, [roomUsers]);
+
+  const [activeStreams, setActiveStreams] = useState([]); // List of socketIds
+  const [messages, setMessages] = useState(() => {
+    try {
+      if (!roomId) return [];
+      const saved = sessionStorage.getItem(`chat_${roomId}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
     }
-  }, [location.state]);
+  });
 
-  // Player state
-
-  const videoRef = useRef(null);
-  const chatScrollRef = useRef(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [volume, setVolume] = useState(1);
-  const [progress, setProgress] = useState(0);
-  const [currentTimePlayed, setCurrentTimePlayed] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [showControls, setShowControls] = useState(true);
-  const [playerError, setPlayerError] = useState(false);
-  const controlsTimeoutRef = useRef(null);
-
-  // Prevent multiple seeks loops
-  const isSeekingRef = useRef(false);
-  const ignoreNextEventRef = useRef(false);
-  // Add graceful period after video change to ignore auto-pauses
-  const changingVideoRef = useRef(false);
-
-  // 1. Socket Connection and Setup
+  // Save messages to session storage
   useEffect(() => {
-    if (loading) return; // Wait until auth state is resolved
+    if (roomId) {
+      sessionStorage.setItem(`chat_${roomId}`, JSON.stringify(messages));
+    }
+  }, [messages, roomId]);
 
+  const [newMessage, setNewMessage] = useState("");
+  const [activeTab, setActiveTab] = useState("chat");
+  const [copied, setCopied] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
+
+  const [remoteStreams, setRemoteStreams] = useState(new Map()); // socketId -> MediaStream
+  const [isSharing, setIsSharing] = useState(false);
+  const localStreamRef = useRef(null);
+
+  // Connection Refs
+  // outgoing: I called them (I am sharing)
+  // incoming: They called me (They are sharing)
+  const outgoingPeersRef = useRef({});
+  const incomingPeersRef = useRef({});
+
+  const chatScrollRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  const [gifs, setGifs] = useState([]);
+  const [gifQuery, setGifQuery] = useState("");
+
+  useEffect(() => {
+    // Auto-resize textarea
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+    }
+  }, [newMessage]);
+
+  const fetchGifs = async () => {
+    try {
+      const apiKey = "LIVDSRZULELA";
+      const url = gifQuery
+        ? `https://g.tenor.com/v1/search?q=${gifQuery}&key=${apiKey}&limit=20`
+        : `https://g.tenor.com/v1/trending?key=${apiKey}&limit=20`;
+
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.results) {
+        // Prefer mediumgif or gif over tinygif for better visibility/quality
+        setGifs(
+          data.results.map(
+            (r) =>
+              r.media[0].mediumgif?.url ||
+              r.media[0].gif?.url ||
+              r.media[0].tinygif?.url,
+          ),
+        );
+      }
+    } catch (e) {
+      console.error("Failed to fetch GIFs", e);
+    }
+  };
+
+  useEffect(() => {
+    if (showGifPicker) {
+      fetchGifs();
+    }
+  }, [showGifPicker, gifQuery]);
+
+  // Helper functions
+  const handleCallUser = async (targetId, stream, socketInstance) => {
+    // console.log(`Calling ${targetId} with stream`);
+    const peer = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:global.stun.twilio.com:3478" },
+      ],
+    });
+
+    if (stream) {
+      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+    }
+
+    peer.onicecandidate = (e) => {
+      if (e.candidate) {
+        socketInstance.emit("ice-candidate", {
+          target: targetId,
+          candidate: e.candidate,
+          sender: socketInstance.id,
+          type: "offer_candidate", // Differentiate candidacy
+        });
+      }
+    };
+
+    outgoingPeersRef.current[targetId] = peer;
+
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
+
+    socketInstance.emit("offer", {
+      target: targetId,
+      sdp: offer,
+      sender: socketInstance.id,
+    });
+  };
+
+  const handleReceiveOffer = async (payload, socketInstance) => {
+    // console.log(`Received offer from ${payload.sender}`);
+    const peer = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:global.stun.twilio.com:3478" },
+      ],
+    });
+
+    peer.onicecandidate = (e) => {
+      if (e.candidate) {
+        socketInstance.emit("ice-candidate", {
+          target: payload.sender,
+          candidate: e.candidate,
+          sender: socketInstance.id,
+          type: "answer_candidate",
+        });
+      }
+    };
+
+    peer.ontrack = (e) => {
+      // console.log("Received track from", payload.sender);
+      setRemoteStreams((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(payload.sender, e.streams[0]);
+        return newMap;
+      });
+    };
+
+    incomingPeersRef.current[payload.sender] = peer;
+
+    await peer.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+    const answer = await peer.createAnswer();
+    await peer.setLocalDescription(answer);
+
+    socketInstance.emit("answer", {
+      target: payload.sender,
+      sdp: answer,
+      sender: socketInstance.id,
+    });
+  };
+
+  useEffect(() => {
+    if (loading) return;
     if (!user) {
       navigate("/login", { state: { returnTo: `/watch/${roomId}` } });
       return;
@@ -92,64 +209,98 @@ const WatchParty = () => {
     setSocket(newSocket);
 
     newSocket.on("connect", () => {
-      console.log("Socket connected", newSocket.id);
-      newSocket.emit("join_room", {
-        roomId,
-        user: { id: user._id, name: user.name },
-      });
+      console.log("Connected:", newSocket.id);
+      newSocket.emit("join_room", { roomId, user });
     });
 
     newSocket.on("room_state", (state) => {
       setRoomUsers(state.users);
-      setIsHost(state.isHost);
-      setCurrentVideo(state.currentVideo || "");
-      if (state.currentVideo) setVideoInput(state.currentVideo);
+      setActiveStreams(state.streams || []);
     });
 
     newSocket.on("update_users", (users) => {
       setRoomUsers(users);
     });
 
-    newSocket.on("new_host", (newHostId) => {
-      if (newSocket.id === newHostId) {
-        setIsHost(true);
+    newSocket.on("update_streams", (streams) => {
+      setActiveStreams(streams);
+    });
+
+    // Stream Signaling
+    newSocket.on("stream_started", (userId) => {
+      console.log("Stream started by:", userId);
+      if (userId === newSocket.id) {
+        // Trigger calls to existing users
+        // Note: using roomUsersRef to avoid stale closure if useEffect doesn't re-run
+        const usersToCall = roomUsersRef.current;
+        if (localStreamRef.current) {
+          usersToCall.forEach((u) => {
+            // Don't call myself
+            if (u.socketId !== newSocket.id) {
+              handleCallUser(u.socketId, localStreamRef.current, newSocket);
+            }
+          });
+        }
       }
     });
 
-    newSocket.on("video_changed", (url) => {
-      console.log("video_changed event received:", url);
-      changingVideoRef.current = true;
-      // Stop to prevent lingering state
-      setIsPlaying(false);
-
-      setCurrentVideo(url);
-      setVideoInput(url);
-      // We rely on ReactPlayer.onReady to restart playback for the host
+    newSocket.on("stream_stopped", (userId) => {
+      if (userId === newSocket.id) {
+        stopLocalCapture();
+      } else {
+        setRemoteStreams((prev) => {
+          const newMap = new Map(prev);
+          newMap.delete(userId);
+          return newMap;
+        });
+        if (incomingPeersRef.current[userId]) {
+          incomingPeersRef.current[userId].close();
+          delete incomingPeersRef.current[userId];
+        }
+      }
     });
 
-    newSocket.on("video_action", ({ action, time }) => {
-      if (isHost) return; // Host controls others, not vice versa
+    newSocket.on("stream_error", (msg) => {
+      alert(msg);
+      stopLocalCapture(); // Ensure we stop if server rejects
+    });
 
-      const video = videoRef.current;
-      if (!video) return;
+    newSocket.on("offer", (payload) => handleReceiveOffer(payload, newSocket));
 
-      ignoreNextEventRef.current = true; // Prevent echo back to server
-
-      // Apply the time strictly if it's off by >1s
-      if (
-        time !== undefined &&
-        typeof video.getCurrentTime === "function" &&
-        Math.abs(video.getCurrentTime() - time) > 1
-      ) {
-        if (typeof video.seekTo === "function") video.seekTo(time, "seconds");
+    newSocket.on("answer", async (payload) => {
+      const peer = outgoingPeersRef.current[payload.sender];
+      if (peer) {
+        await peer.setRemoteDescription(new RTCSessionDescription(payload.sdp));
       }
+    });
 
-      if (action === "play") {
-        setIsPlaying(true);
-      } else if (action === "pause") {
-        setIsPlaying(false);
-      } else if (action === "seek") {
-        // Time already set above
+    newSocket.on("ice-candidate", async (payload) => {
+      let peer =
+        incomingPeersRef.current[payload.sender] ||
+        outgoingPeersRef.current[payload.sender];
+      if (peer && payload.candidate) {
+        try {
+          await peer.addIceCandidate(new RTCIceCandidate(payload.candidate));
+        } catch (e) {
+          console.error("ICE error", e);
+        }
+      }
+    });
+
+    newSocket.on("user_joined", (newUser) => {
+      if (localStreamRef.current) {
+        handleCallUser(newUser.socketId, localStreamRef.current, newSocket);
+      }
+    });
+
+    newSocket.on("user_left", (leftUser) => {
+      if (outgoingPeersRef.current[leftUser.socketId]) {
+        outgoingPeersRef.current[leftUser.socketId].close();
+        delete outgoingPeersRef.current[leftUser.socketId];
+      }
+      if (incomingPeersRef.current[leftUser.socketId]) {
+        incomingPeersRef.current[leftUser.socketId].close();
+        delete incomingPeersRef.current[leftUser.socketId];
       }
     });
 
@@ -157,50 +308,94 @@ const WatchParty = () => {
       setMessages((prev) => [...prev, msg]);
     });
 
-    return () => newSocket.disconnect();
+    return () => {
+      stopLocalCapture();
+      newSocket.disconnect();
+    };
   }, [roomId, user, loading, navigate]);
 
-  // 2. Chat Scroll Auto-Bottom
-  useEffect(() => {
-    if (chatScrollRef.current) {
-      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+  const requestStartStream = async () => {
+    try {
+      // 1. Get Permission & Stream First (User Gesture)
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 60 },
+        },
+        audio: true,
+      });
+
+      localStreamRef.current = stream;
+      setIsSharing(true);
+
+      stream.getVideoTracks()[0].onended = () => {
+        requestStopStream();
+      };
+
+      // 2. Tell Server
+      if (socket) {
+        socket.emit("start_stream", { roomId });
+      }
+    } catch (err) {
+      console.error("Capture failed or cancelled", err);
+      setIsSharing(false);
     }
-  }, [messages, activeTab]);
-
-  // 3. Handlers
-  const handleHostSetVideo = (e) => {
-    e.preventDefault();
-    if (!isHost || !videoInput) return;
-    const url = videoInput.trim();
-    console.log("Host loading video, emitting set_video:", url);
-
-    if (
-      url.includes("hianime.vc") ||
-      url.includes("crunchyroll.com") ||
-      url.includes("netflix.com") ||
-      url.includes("aniwatch.to")
-    ) {
-      setPlayerError(true);
-      return;
-    }
-
-    // Stop playing, clear current URL to force a clean remount on the new one
-    setIsPlaying(false);
-    changingVideoRef.current = true;
-    setPlayerError(false);
-
-    socket?.emit("set_video", { roomId, videoUrl: url });
   };
 
-  const handleSendMessage = (e) => {
+  const requestStopStream = (socketInstance = socket) => {
+    if (socketInstance) {
+      socketInstance.emit("stop_stream", { roomId });
+    }
+    stopLocalCapture();
+  };
+
+  const stopLocalCapture = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+    }
+    setIsSharing(false);
+
+    Object.keys(outgoingPeersRef.current).forEach((key) => {
+      outgoingPeersRef.current[key].close();
+      delete outgoingPeersRef.current[key];
+    });
+  };
+
+  const sendMessage = (e) => {
     e.preventDefault();
     if (!newMessage.trim() || !socket) return;
-    socket.emit("send_message", {
+
+    const msgData = {
       roomId,
-      message: newMessage,
-      user: user.name,
-    });
+      user: { id: user._id, name: user.name },
+      message: newMessage, // Correct field name for backend
+      type: "text",
+      timestamp: new Date().toISOString(),
+    };
+
+    socket.emit("send_message", msgData);
     setNewMessage("");
+    setShowEmojiPicker(false);
+  };
+
+  const sendGif = (url) => {
+    if (!socket) return;
+    const msgData = {
+      roomId,
+      user: { id: user._id, name: user.name },
+      message: url,
+      type: "image",
+      timestamp: new Date().toISOString(),
+    };
+    socket.emit("send_message", msgData);
+    setShowGifPicker(false);
+  };
+
+  const onEmojiClick = (emojiData) => {
+    setNewMessage((prev) => prev + emojiData.emoji);
+    // Don't close picker automatically for better UX
   };
 
   const copyRoomLink = () => {
@@ -209,514 +404,366 @@ const WatchParty = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // 4. Video Event Handlers (HOST ONLY broadcasts)
-  const emitAction = (action) => {
-    if (
-      isHost &&
-      socket &&
-      videoRef.current &&
-      typeof videoRef.current.getCurrentTime === "function"
-    ) {
-      socket.emit("video_action", {
-        roomId,
-        action,
-        time: videoRef.current.getCurrentTime(),
-      });
-    }
-  };
-
-  const onPlay = () => {
-    // If we successfully play, clear the changingVideo flag so manual pauses work
-    changingVideoRef.current = false;
-
-    if (ignoreNextEventRef.current) {
-      ignoreNextEventRef.current = false;
-      return;
-    }
-    if (!isHost) {
-      // Force non-hosts to wait for host signal (delay to avoid play/pause race)
-      setTimeout(() => setIsPlaying(false), 50);
-      return;
-    }
-    setIsPlaying(true);
-    emitAction("play");
-  };
-
-  const onPause = () => {
-    console.log(
-      "onPause triggered. isHost:",
-      isHost,
-      "ignoreNext:",
-      ignoreNextEventRef.current,
-      "changingVideo:",
-      changingVideoRef.current,
-    );
-    if (ignoreNextEventRef.current) {
-      ignoreNextEventRef.current = false;
-      return;
-    }
-    // Ignore pause events during video change to prevent autoplay interruption
-    if (changingVideoRef.current) {
-      console.log("Ignored auto-pause during load.");
-      return;
-    }
-
-    if (!isHost) {
-      // Resist pausing but delay slightly to avoid causing play() AbortError
-      setTimeout(() => setIsPlaying(true), 50);
-      return;
-    }
-    setIsPlaying(false);
-    emitAction("pause");
-  };
-
-  const onSeeked = () => {
-    if (ignoreNextEventRef.current) {
-      ignoreNextEventRef.current = false;
-      return;
-    }
-    if (isHost) {
-      emitAction("seek");
-    }
-  };
-
-  const togglePlay = () => {
-    // We now rely primarily on native player controls for interaction.
-    // This function can remain as a fallback or for custom UI triggers.
-    if (!isHost) return;
-    setIsPlaying(!isPlaying);
-  };
-
-  // Attach native 'seeked' listener to internal player to avoid passing
-  // `onSeek` prop through to DOM (React warns about unknown event props).
-  useEffect(() => {
-    const player = videoRef.current;
-    if (!player || typeof player.getInternalPlayer !== "function") return;
-
-    // Try to get internal player (file player returns HTMLMediaElement)
-    let internal;
-    try {
-      internal = player.getInternalPlayer("file") || player.getInternalPlayer();
-    } catch (err) {
-      // ignore
-    }
-
-    if (!internal || typeof internal.addEventListener !== "function") return;
-
-    const onSeekedNative = () => {
-      if (ignoreNextEventRef.current) {
-        ignoreNextEventRef.current = false;
-        return;
-      }
-      if (isHost) emitAction("seek");
-    };
-
-    internal.addEventListener("seeked", onSeekedNative);
-    return () => internal.removeEventListener("seeked", onSeekedNative);
-  }, [currentVideo, isHost, socket]);
-
-  // 5. Video Progress UI
-  const formatTime = (timeInSeconds) => {
-    const m = Math.floor(timeInSeconds / 60);
-    const s = Math.floor(timeInSeconds % 60);
-    return `${m}:${s < 10 ? "0" + s : s}`;
-  };
-
-  const handleTimeUpdate = (state) => {
-    if (videoRef.current && !isSeekingRef.current) {
-      // state.played is a fraction from 0 to 1
-      setProgress(state.played * 100 || 0);
-      setCurrentTimePlayed(state.playedSeconds || 0);
-    }
-  };
-
-  const handleProgressScrub = (e) => {
-    if (!isHost || !videoRef.current) return;
-    const bar = e.currentTarget;
-    const rect = bar.getBoundingClientRect();
-    const scrubFraction = (e.clientX - rect.left) / rect.width;
-
-    // Check if seekTo exists in current player ref (sometimes internal player isn't ready)
-    if (typeof videoRef.current.seekTo === "function") {
-      videoRef.current.seekTo(scrubFraction, "fraction");
-      setProgress(scrubFraction * 100);
-    }
-  };
-
-  const handleMouseMove = () => {
-    setShowControls(true);
-    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
-  };
-
-  const toggleFullscreen = () => {
-    const playerContainer = document.getElementById("player-container");
-    if (!document.fullscreenElement) {
-      playerContainer.requestFullscreen().catch((err) => console.log(err));
-    } else {
-      document.exitFullscreen();
-    }
-  };
-
-  if (loading) {
+  if (loading)
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-cyber-black pt-20">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-          className="h-12 w-12 border-4 border-cyber-teal border-t-transparent rounded-full mb-4"
-        />
-        <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">
-          Joining Room...
-        </p>
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        Loading...
       </div>
     );
+
+  // Render Streams
+  // We need to render:
+  // 1. My local stream (if sharing)
+  // 2. Remote streams
+  const streamKeys = Array.from(remoteStreams.keys());
+  const totalStreams = streamKeys.length + (isSharing ? 1 : 0);
+
+  // Grid Classes
+  let gridStyles = "w-full h-full flex items-center justify-center";
+  let itemStyles = "w-full h-full";
+
+  if (totalStreams >= 2) {
+    gridStyles =
+      "w-full h-full grid grid-cols-1 sm:grid-cols-2 gap-4 p-2 sm:p-4";
+    itemStyles =
+      "w-full h-full border border-zinc-800 rounded-xl overflow-hidden bg-zinc-900";
+  } else {
+    // Single stream
+    itemStyles =
+      "w-full h-full object-contain max-h-[100%] rounded-xl shadow-2xl bg-zinc-900 border border-zinc-800";
   }
 
   return (
-    <div className="min-h-screen bg-cyber-black text-white pt-20 px-6 pb-6 flex flex-col md:flex-row gap-6">
-      <div className="flex-1 flex flex-col gap-6">
-        <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl p-4">
-          <div>
-            <h1 className="text-2xl font-black italic uppercase tracking-widest text-cyber-teal">
-              {animeTitle} {episodeNum ? `- EP ${episodeNum}` : ""}
+    <div className="min-h-screen bg-black text-white flex flex-col">
+      {/* Header */}
+      <nav className="h-16 border-b border-white/10 flex items-center justify-between px-4 sm:px-6 bg-zinc-950 shrink-0">
+        <div className="flex items-center gap-3 sm:gap-4 overflow-hidden">
+          <button
+            onClick={() => navigate("/")}
+            className="text-zinc-400 hover:text-white transition-colors p-2"
+          >
+            ←
+          </button>
+          <div className="min-w-0">
+            <h1 className="font-bold text-sm sm:text-lg truncate">
+              {animeTitle}
             </h1>
-            <p className="text-sm font-bold text-gray-400">
-              {isHost ? "You are the Host" : "Waiting for Host..."}
+            <p className="text-[10px] sm:text-xs text-zinc-500 truncate">
+              {episodeNum ? `EP ${episodeNum}` : "Room"} • {roomId}
             </p>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2 sm:gap-4">
+          {!isSharing ? (
+            <button
+              onClick={requestStartStream}
+              className="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-bold text-[10px] sm:text-sm transition-all shadow-lg shadow-purple-900/20"
+            >
+              <Monitor size={16} />
+              <span className="hidden sm:inline">Share Screen</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => requestStopStream(socket)}
+              className="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-red-600 hover:bg-red-700 rounded-lg font-bold text-[10px] sm:text-sm transition-all"
+            >
+              <VideoOff size={16} />
+              <span className="hidden sm:inline">Stop Sharing</span>
+            </button>
+          )}
+
           <button
             onClick={copyRoomLink}
-            className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl transition-colors font-bold text-xs uppercase tracking-widest"
+            className="flex items-center justify-center p-2 sm:p-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+            title="Copy Link"
           >
             {copied ? (
-              <Check size={16} className="text-emerald-400" />
+              <Check size={16} className="text-green-500" />
             ) : (
               <Copy size={16} />
             )}
-            <span>{copied ? "Copied" : "Copy Link"}</span>
           </button>
         </div>
+      </nav>
 
-        {/* Video Player */}
-        <div
-          id="player-container"
-          className="relative w-full aspect-video bg-black rounded-3xl overflow-hidden shadow-2xl shadow-cyber-teal/10 border border-white/10 group"
-          onMouseMove={handleMouseMove}
-          onMouseLeave={() => setShowControls(false)}
-        >
-          {currentVideo ? (
-            <ReactPlayer
-              ref={videoRef}
-              key={currentVideo} // Force remount on video change to ensure clean state
-              url={currentVideo}
-              className="react-player absolute inset-0"
-              width="100%"
-              height="100%"
-              playing={isPlaying}
-              controls={false} // Custom controls only
-              volume={isMuted ? 0 : volume}
-              muted={isMuted}
-              onProgress={handleTimeUpdate}
-              onReady={() => {
-                console.log("Player ready");
-                // Try getting duration safely
-                try {
-                  const dur = videoRef.current?.getDuration?.();
-                  if (typeof dur === "number" && dur > 0) setDuration(dur);
-                } catch (err) {
-                  // ignore
-                }
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
+        {/* Stream Area */}
+        <div className="flex-1 bg-black relative flex items-center justify-center p-4">
+          {totalStreams > 0 ? (
+            <div
+              className={
+                totalStreams >= 2
+                  ? "w-full h-full grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 content-start overflow-y-auto"
+                  : "w-full h-full flex items-center justify-center p-2 sm:p-0"
+              }
+            >
+              {/* Local Stream Preview */}
+              {isSharing && (
+                <div
+                  className={`relative ${totalStreams >= 2 ? "w-full aspect-video sm:h-full bg-zinc-900 rounded-xl overflow-hidden border border-purple-500/50" : "w-full h-fit flex items-center justify-center"}`}
+                >
+                  <div className="absolute top-2 left-2 z-10 bg-black/60 px-2 py-1 rounded text-[10px] select-none pointer-events-none border border-white/5">
+                    You (Live)
+                  </div>
+                  <video
+                    ref={(v) => {
+                      if (v && localStreamRef.current)
+                        v.srcObject = localStreamRef.current;
+                    }}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+              )}
 
-                // If Host just prioritized a video change, start playback now that player is ready
-                // We use a slight delay to ensure the DOM is painted and browser is happy
-                // REMOVED AUTO PLAY to force user interaction and avoid "not playing" black screens
-                /*
-                if (isHost) {
-                   setTimeout(() => {
-                      setIsPlaying(true);
-                   }, 100);
-                }
-                */
-              }}
-              onStart={() => {
-                console.log("Player started playing");
-                // Successful start - allow interactions again
-                changingVideoRef.current = false;
-                setPlayerError(false);
-              }}
-              onError={(e) => {
-                console.error("ReactPlayer error:", e);
-                setPlayerError(true);
-              }}
-              onPlay={onPlay}
-              onPause={onPause}
-              // onSeek not passed to avoid unknown prop warning
-              config={{
-                youtube: {
-                  playerVars: {
-                    disablekb: 1,
-                    rel: 0,
-                    controls: 0, // Hide YT controls
-                    modestbranding: 1,
-                    origin: window.location.origin,
-                    fs: 0, // Hide fullscreen button
-                    iv_load_policy: 3, // Hide annotations
-                    autoplay: 1,
-                    playsinline: 1,
-                  },
-                },
-                file: {
-                  attributes: {
-                    crossOrigin: "anonymous",
-                    playsInline: true,
-                  },
-                },
-              }}
-            />
-          ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900/50">
-              <Play size={64} className="text-white/20 mb-4" />
-              <p className="font-bold text-gray-500 uppercase tracking-widest">
-                No Video Loaded
-              </p>
-            </div>
-          )}
-
-          {playerError && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-50 p-6 text-center">
-              <p className="text-red-500 font-bold mb-2">
-                Unavailable Video Source
-              </p>
-              <p className="text-gray-400 text-sm max-w-md">
-                The player cannot stream this URL directly. This typically
-                happens when using webpage URLs instead of direct video links.
-              </p>
-              <p className="text-cyber-teal text-xs mt-4">
-                Supported: YouTube, Vimeo, direct .mp4/.m3u8 files
-              </p>
-              <p className="text-gray-500 text-xs mt-1">
-                Not Supported: hianime.vc, crunchyroll.com (webpages)
-              </p>
-            </div>
-          )}
-
-          {/* Player UI Overlay */}
-          <AnimatePresence>
-            {showControls && currentVideo && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/80 via-transparent to-black/20 pointer-events-none"
-              >
-                {/* Center Giant Play/Pause Indicator (Interactive) */}
-                {!isPlaying && (
+              {/* Remote Streams */}
+              {streamKeys.map((key) => {
+                const userName =
+                  roomUsers.find((u) => u.socketId === key)?.name || "User";
+                return (
                   <div
-                    onClick={togglePlay}
-                    className="absolute inset-0 flex items-center justify-center cursor-pointer pointer-events-auto"
+                    key={key}
+                    className={`relative ${totalStreams >= 2 ? "w-full aspect-video sm:h-full bg-zinc-900 rounded-xl overflow-hidden border border-zinc-800" : "w-full h-fit flex items-center justify-center"}`}
                   >
-                    <div className="w-24 h-24 bg-cyber-teal/90 rounded-full flex items-center justify-center shadow-[0_0_40px_rgba(0,240,255,0.4)] backdrop-blur-md hover:scale-110 transition-transform">
-                      <Play
-                        size={40}
-                        className="text-cyber-black ml-2"
-                        fill="currentColor"
-                      />
+                    <div className="absolute top-2 left-2 z-10 bg-black/60 px-2 py-1 rounded text-[10px] select-none pointer-events-none border border-white/5">
+                      {userName}
                     </div>
+                    <video
+                      ref={(v) => {
+                        if (v) v.srcObject = remoteStreams.get(key);
+                      }}
+                      autoPlay
+                      playsInline
+                      controls
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center text-zinc-500">
+              <div className="bg-zinc-900/50 p-8 rounded-2xl border border-zinc-800 backdrop-blur-sm">
+                <Monitor size={48} className="mx-auto mb-4 opacity-50" />
+                <h3 className="text-xl font-medium text-white mb-2">
+                  No Active Streams
+                </h3>
+                <p className="text-sm">
+                  Click "Share Screen" to start streaming.
+                </p>
+                <p className="text-xs mt-2 text-zinc-600">
+                  (Max 2 concurrent streams)
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar - Collapsible/Tabs optimized for mobile */}
+        <div
+          className={`w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-white/10 bg-zinc-950 flex flex-col transition-all duration-300 ${activeTab === "none" ? "h-0 sm:h-auto" : "h-[60vh] sm:h-auto"}`}
+        >
+          <div className="flex border-b border-white/10">
+            <button
+              onClick={() => setActiveTab("chat")}
+              className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                activeTab === "chat"
+                  ? "text-purple-400 border-b-2 border-purple-400 bg-white/5"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              <MessageSquare size={16} /> Chat
+            </button>
+            <button
+              onClick={() => setActiveTab("users")}
+              className={`flex-1 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                activeTab === "users"
+                  ? "text-purple-400 border-b-2 border-purple-400 bg-white/5"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              <Users size={16} /> Users ({roomUsers.length})
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+            {activeTab === "chat" ? (
+              <div className="flex flex-col gap-3 min-h-full justify-end">
+                {messages.length === 0 && (
+                  <div className="text-zinc-600 text-center my-auto py-10 text-sm">
+                    No messages yet
                   </div>
                 )}
-
-                <div className="p-6 pointer-events-auto">
-                  {/* Progress Bar */}
+                {messages.map((msg, idx) => (
                   <div
-                    className="w-full h-1.5 bg-white/20 rounded-full mb-6 relative cursor-pointer hover:h-2 transition-all group/progress"
-                    onClick={handleProgressScrub}
+                    key={idx}
+                    className={`flex flex-col ${msg.user.id === user._id ? "items-end" : "items-start"}`}
                   >
-                    <div
-                      className="absolute top-0 left-0 h-full bg-cyber-teal rounded-full"
-                      style={{ width: `${progress}%` }}
-                    >
-                      <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg scale-0 group-hover/progress:scale-100 transition-transform" />
-                    </div>
-                  </div>
-
-                  {/* Controls Row */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-6">
-                      <button
-                        onClick={togglePlay}
-                        disabled={!isHost}
-                        className={`text-white hover:text-cyber-teal transition-colors ${!isHost && "opacity-50 cursor-not-allowed"}`}
-                      >
-                        {isPlaying ? <Pause size={24} /> : <Play size={24} />}
-                      </button>
-
-                      <div className="flex items-center gap-3 group/volume">
-                        <button
-                          onClick={() => setIsMuted(!isMuted)}
-                          className="text-white hover:text-cyber-teal transition-colors"
-                        >
-                          {isMuted || volume === 0 ? (
-                            <VolumeX size={20} />
-                          ) : (
-                            <Volume2 size={20} />
-                          )}
-                        </button>
-                        <input
-                          type="range"
-                          min="0"
-                          max="1"
-                          step="0.05"
-                          value={isMuted ? 0 : volume}
-                          onChange={(e) => {
-                            const val = parseFloat(e.target.value);
-                            setVolume(val);
-                            if (val > 0) setIsMuted(false);
-                          }}
-                          className="w-0 overflow-hidden group-hover/volume:w-20 transition-all duration-300 accent-cyber-teal bg-transparent"
-                        />
-                      </div>
-
-                      <span className="text-xs font-bold text-gray-300 font-mono">
-                        {formatTime(currentTimePlayed)} /{" "}
-                        {formatTime(duration || 0)}
+                    <div className="flex items-baseline gap-2 mb-1">
+                      <span className="text-xs font-bold text-zinc-300">
+                        {msg.user.name}
+                      </span>
+                      <span className="text-[10px] text-zinc-600">
+                        {new Date(msg.timestamp).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                       </span>
                     </div>
-
-                    <button
-                      onClick={toggleFullscreen}
-                      className="text-white hover:text-cyber-teal transition-colors"
+                    <div
+                      className={`px-3 py-2 rounded-lg text-sm max-w-[90%] break-words whitespace-pre-wrap ${msg.user.id === user._id ? "bg-purple-600" : "bg-zinc-800"}`}
                     >
-                      <Maximize size={24} />
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Host Video Input */}
-        {isHost && (
-          <form
-            onSubmit={handleHostSetVideo}
-            className="flex items-center gap-4 bg-white/5 border border-white/10 rounded-2xl p-4"
-          >
-            <div className="flex-1 relative">
-              <LinkIcon
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
-                size={20}
-              />
-              <input
-                type="text"
-                placeholder="Paste YouTube, Vimeo, Twitch, .mp4 Link..."
-                value={videoInput}
-                onChange={(e) => setVideoInput(e.target.value)}
-                className="w-full bg-black/50 border border-white/10 rounded-xl py-3 pl-12 pr-4 text-white focus:outline-none focus:border-cyber-teal"
-              />
-            </div>
-            <button
-              type="submit"
-              className="bg-cyber-teal text-cyber-black px-6 py-3 rounded-xl font-bold uppercase tracking-widest text-sm"
-            >
-              Load
-            </button>
-          </form>
-        )}
-      </div>
-
-      {/* Sidebar */}
-      <div className="w-full md:w-96 flex flex-col bg-white/5 border border-white/10 rounded-3xl overflow-hidden h-[80vh]">
-        <div className="flex border-b border-white/10">
-          <button
-            onClick={() => setActiveTab("chat")}
-            className={`flex-1 py-4 font-bold uppercase tracking-widest text-xs flex items-center justify-center gap-2 ${
-              activeTab === "chat"
-                ? "bg-white/10 text-cyber-teal"
-                : "text-gray-400 hover:text-white"
-            }`}
-          >
-            <MessageSquare size={16} />
-            Chat
-          </button>
-          <button
-            onClick={() => setActiveTab("users")}
-            className={`flex-1 py-4 font-bold uppercase tracking-widest text-xs flex items-center justify-center gap-2 ${
-              activeTab === "users"
-                ? "bg-white/10 text-cyber-amber"
-                : "text-gray-400 hover:text-white"
-            }`}
-          >
-            <Users size={16} />
-            Users ({roomUsers.length})
-          </button>
-        </div>
-
-        <div
-          className="flex-1 overflow-y-auto p-4 custom-scrollbar"
-          ref={chatScrollRef}
-        >
-          {activeTab === "chat" ? (
-            <div className="flex flex-col gap-4">
-              {messages.length === 0 ? (
-                <p className="text-center text-gray-500 text-sm mt-10">
-                  No messages yet. Say hello!
-                </p>
-              ) : (
-                messages.map((msg, i) => (
-                  <div key={i} className="flex flex-col">
-                    <span className="text-xs font-bold text-gray-400 mb-1">
-                      {msg.user}
-                    </span>
-                    <div className="bg-white/10 rounded-2xl rounded-tl-none p-3 text-sm max-w-[85%]">
-                      {msg.message}
+                      {msg.type === "image" ||
+                      /\.(gif|jpe?g|png|webp)($|\?)/i.test(
+                        msg.message || msg.text,
+                      ) ? (
+                        <img
+                          src={msg.message || msg.text}
+                          alt="Shared content"
+                          className="rounded-lg w-full h-auto block mt-1"
+                          loading="lazy"
+                        />
+                      ) : (
+                        msg.message || msg.text
+                      )}
                     </div>
                   </div>
-                ))
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {roomUsers.map((u) => (
-                <div
-                  key={u.id}
-                  className="flex items-center gap-3 p-3 bg-white/5 rounded-xl border border-white/5"
-                >
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyber-teal to-cyber-amber flex items-center justify-center text-cyber-black font-black flex-shrink-0">
-                    {u.name.charAt(0).toUpperCase()}
+                ))}
+                <div ref={chatScrollRef} />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {roomUsers.map((u) => (
+                  <div
+                    key={u.socketId}
+                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-linear-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-xs font-bold">
+                      {u.name[0]}
+                    </div>
+                    <div className="text-sm flex flex-col">
+                      <span>
+                        {u.name} {u.socketId === socket.id && "(You)"}
+                      </span>
+                      {activeStreams.includes(u.socketId) && (
+                        <span className="text-red-400 text-[10px] flex items-center gap-1">
+                          ● Live
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <span className="font-bold flex-1 truncate">{u.name}</span>
-                  {u.id === user._id && (
-                    <span className="text-[10px] bg-white/10 px-2 py-0.5 rounded-full text-gray-400 uppercase">
-                      You
-                    </span>
-                  )}
+                ))}
+              </div>
+            )}
+          </div>
+
+          {activeTab === "chat" && (
+            <div className="p-3 sm:p-4 border-t border-white/10 bg-zinc-900/50 relative">
+              {showEmojiPicker && (
+                <div className="absolute bottom-full right-0 sm:right-4 mb-2 z-50 shadow-2xl">
+                  <EmojiPicker
+                    onEmojiClick={(data) => onEmojiClick(data)}
+                    theme="dark"
+                    skinTonesDisabled
+                    searchDisabled={false}
+                    width={
+                      window.innerWidth < 640 ? window.innerWidth - 24 : 300
+                    }
+                    height={350}
+                  />
                 </div>
-              ))}
+              )}
+              {showGifPicker && (
+                <div className="absolute bottom-full left-0 right-0 sm:left-4 sm:right-4 mb-2 bg-zinc-900 border border-zinc-700 rounded-t-xl sm:rounded-xl p-3 shadow-2xl z-50 flex flex-col gap-2 h-72">
+                  <div className="relative">
+                    <Search
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+                      size={14}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Search Tenor..."
+                      value={gifQuery}
+                      onChange={(e) => setGifQuery(e.target.value)}
+                      className="w-full bg-zinc-800 border-none rounded-lg pl-9 pr-4 py-2 text-xs text-white focus:ring-1 focus:ring-purple-500 placeholder-zinc-600"
+                    />
+                  </div>
+                  <div className="flex-1 overflow-y-auto grid grid-cols-2 gap-2 custom-scrollbar p-1">
+                    {gifs.map((gif, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => sendGif(gif)}
+                        className="hover:opacity-80 transition-opacity rounded-lg overflow-hidden relative bg-zinc-800 h-24 w-full"
+                      >
+                        <img
+                          src={gif}
+                          alt="GIF"
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEmojiPicker(!showEmojiPicker);
+                      setShowGifPicker(false);
+                    }}
+                    className="p-2 text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors flex-shrink-0"
+                  >
+                    <Smile size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowGifPicker(!showGifPicker);
+                      setShowEmojiPicker(false);
+                    }}
+                    className="p-2 text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors flex-shrink-0"
+                  >
+                    <ImageIcon size={18} />
+                  </button>
+                </div>
+                <form
+                  onSubmit={sendMessage}
+                  className="flex-1 flex gap-2 items-end"
+                >
+                  <textarea
+                    ref={textareaRef}
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        sendMessage(e);
+                      }
+                    }}
+                    placeholder="Message..."
+                    rows={1}
+                    className="flex-1 bg-zinc-800 border-none rounded-lg px-3 py-2 text-sm text-white focus:ring-1 focus:ring-purple-500 placeholder-zinc-600 resize-none custom-scrollbar"
+                    style={{ minHeight: "38px", maxHeight: "100px" }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!newMessage.trim()}
+                    className="p-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all disabled:opacity-50 disabled:grayscale flex-shrink-0"
+                  >
+                    <Send size={16} />
+                  </button>
+                </form>
+              </div>
             </div>
           )}
         </div>
-
-        {activeTab === "chat" && (
-          <form
-            onSubmit={handleSendMessage}
-            className="p-4 border-t border-white/10 flex gap-2"
-          >
-            <input
-              type="text"
-              placeholder="Type message..."
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              className="flex-1 bg-black/50 border border-white/10 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-cyber-teal text-white"
-            />
-            <button
-              type="submit"
-              className="w-10 h-10 bg-cyber-teal rounded-xl flex items-center justify-center text-cyber-black flex-shrink-0 hover:bg-cyber-amber transition-colors"
-            >
-              <Send size={16} />
-            </button>
-          </form>
-        )}
       </div>
     </div>
   );

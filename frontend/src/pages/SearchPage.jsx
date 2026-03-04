@@ -1,199 +1,326 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import AnimeCard from "../components/AnimeCard";
-import { Search as SearchIcon, Filter, Layers, Zap, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  Search as SearchIcon,
+  Filter,
+  Sparkles,
+  Zap,
+  X,
+  LayoutGrid,
+  Loader2,
+} from "lucide-react";
+
+const GENRES = [
+  "Action",
+  "Adventure",
+  "Comedy",
+  "Drama",
+  "Fantasy",
+  "Horror",
+  "Mystery",
+  "Romance",
+  "Sci-Fi",
+  "Sports",
+  "Supernatural",
+  "Slice of Life",
+];
 
 const SearchPage = () => {
   const [animes, setAnimes] = useState([]);
-  const [params, setParams] = useState({
-    keyword: "",
-    status: "",
-    genre: "",
-    page: 1,
-  });
   const [loading, setLoading] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
 
-  const genres = [
-    "Action",
-    "Adventure",
-    "Comedy",
-    "Drama",
-    "Fantasy",
-    "Horror",
-    "Mystery",
-    "Romance",
-    "Sci-Fi",
-    "Sports",
-  ];
+  const [keyword, setKeyword] = useState("");
+  const [debouncedKeyword, setDebouncedKeyword] = useState("");
+  const [status, setStatus] = useState("");
+  const [selectedGenres, setSelectedGenres] = useState([]);
 
-  const fetchSearch = async () => {
-    setLoading(true);
-    try {
-      if (params.keyword) {
-        const { data } = await axios.get("/api/anime/search", {
-          params: { q: params.keyword, page: params.page },
-        });
-        const mappedAnimes = (data.data || []).map((item) => ({
-          _id: item.mal_id,
-          title: item.title,
-          imageUrl:
-            item.images?.jpg?.large_image_url || item.images?.jpg?.image_url,
-          score: item.score,
-          status: item.status,
-          episodes: item.episodes,
-        }));
-        setAnimes(mappedAnimes);
-      } else {
-        const { data } = await axios.get("/api/anime", {
-          params: { ...params, pageSize: 15 },
-        });
-        setAnimes(data.animes || []);
-      }
-    } catch (error) {
-      console.error("Search error:", error);
-    } finally {
-      setLoading(false);
-    }
+  // Debounce keyword
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedKeyword(keyword);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [keyword]);
+
+  const toggleGenre = (g) => {
+    setSelectedGenres((prev) =>
+      prev.includes(g) ? prev.filter((x) => x !== g) : [...prev, g],
+    );
+    setPage(1);
   };
 
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(() => {
-      fetchSearch();
-    }, 500);
+  const clearFilters = () => {
+    setSelectedGenres([]);
+    setStatus("");
+    setPage(1);
+  };
 
-    return () => clearTimeout(delayDebounceFn);
-  }, [params]);
+  const clearSearch = () => {
+    setKeyword("");
+    setDebouncedKeyword("");
+    setPage(1);
+  };
+
+  const fetchSearch = useCallback(
+    async (p = 1, append = false) => {
+      // Don't search if everything is empty
+      if (!debouncedKeyword && !status && selectedGenres.length === 0) {
+        setAnimes([]);
+        setHasMore(false);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const params = { q: debouncedKeyword, page: p };
+        if (status) params.status = status;
+        if (selectedGenres.length) params.genre = selectedGenres.join(",");
+
+        const { data } = await axios.get("/api/anime/search", { params });
+        const items = (data.data || []).map((it) => ({
+          _id: it.mal_id,
+          title: it.title,
+          imageUrl:
+            it.images?.jpg?.large_image_url || it.images?.jpg?.image_url,
+          score: it.score,
+          status: it.status,
+          episodes: it.episodes,
+        }));
+
+        if (append) setAnimes((prev) => [...prev, ...items]);
+        else setAnimes(items);
+
+        const pagination = data.pagination || {};
+        setHasMore(Boolean(pagination.has_next_page));
+      } catch (err) {
+        console.error("Search error:", err.message || err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [debouncedKeyword, status, selectedGenres],
+  );
+
+  useEffect(() => {
+    setPage(1);
+    fetchSearch(1, false);
+  }, [fetchSearch]);
+
+  useEffect(() => {
+    if (page === 1) return;
+    fetchSearch(page, true);
+  }, [page, fetchSearch]);
+
+  const isInitialState = !keyword && !status && selectedGenres.length === 0;
 
   return (
-    <div className="min-h-screen bg-white dark:bg-cyber-black pb-24">
-      {/* Header & Search Bar */}
-      <div className="bg-gray-50 dark:bg-cyber-gray py-20 px-6 border-b border-gray-100 dark:border-gray-800">
-        <div className="container mx-auto">
+    <div className="min-h-screen bg-[#050505] text-white pb-24">
+      {/* Hero Search Section */}
+      <div className="relative pt-32 pb-16 px-6 overflow-hidden">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-[radial-gradient(circle_at_center,var(--cyber-teal-dark)_0%,transparent_70%)] opacity-20 pointer-events-none" />
+
+        <div className="container mx-auto max-w-4xl relative z-10">
           <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className="max-w-4xl mx-auto text-center mb-12"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center mb-12"
           >
-            <span className="text-cyber-teal font-black tracking-[0.4em] uppercase text-xs mb-4 block">
-              Archive Directory
-            </span>
-            <h1 className="text-4xl sm:text-5xl md:text-7xl font-black dark:text-white uppercase italic tracking-tighter">
-              Discover Reality
+            <h1 className="text-5xl md:text-7xl font-black mb-4 tracking-tighter italic uppercase">
+              Search your favorite{" "}
+              <span className="text-cyber-teal">Anime</span>
             </h1>
           </motion.div>
 
-          <div className="max-w-3xl mx-auto relative group">
-            <div className="absolute inset-0 bg-cyber-teal/20 blur-2xl group-focus-within:bg-cyber-teal/40 transition-all rounded-[40px]" />
-            <div className="relative flex items-center bg-white dark:bg-cyber-black border-2 border-gray-200 dark:border-gray-800 rounded-3xl p-2 focus-within:border-cyber-teal transition-all">
-              <div className="pl-6 text-gray-400">
-                <SearchIcon size={24} />
-              </div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.2 }}
+            className="relative group"
+          >
+            <div className="absolute -inset-1 bg-linear-to-r from-cyber-teal to-cyber-amber rounded-2xl blur opacity-25 group-focus-within:opacity-50 transition duration-500" />
+            <div className="relative flex items-center bg-black/80 backdrop-blur-2xl border border-white/10 rounded-2xl overflow-hidden px-6 py-4">
+              <SearchIcon size={24} className="text-cyber-teal mr-4" />
               <input
                 type="text"
-                placeholder="SCAN FOR TITLES, GENRES, STUDIOS..."
-                className="w-full px-4 md:px-6 py-4 md:py-6 bg-transparent outline-none dark:text-white font-black tracking-widest uppercase text-xs md:text-sm"
-                value={params.keyword}
-                onChange={(e) =>
-                  setParams({ ...params, keyword: e.target.value, page: 1 })
-                }
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
+                placeholder="Enter title, character, or studio..."
+                className="w-full bg-transparent border-none outline-none text-xl font-bold placeholder:text-white/20 uppercase tracking-tight italic"
               />
+              {keyword && (
+                <button
+                  onClick={clearSearch}
+                  className="p-1 hover:bg-white/10 rounded-full transition-colors text-white/40 hover:text-white mr-2"
+                >
+                  <X size={18} />
+                </button>
+              )}
+              {loading && (
+                <Loader2
+                  size={24}
+                  className="animate-spin text-cyber-teal ml-4"
+                />
+              )}
+            </div>
+          </motion.div>
+
+          {/* Filters */}
+          <div className="mt-10 space-y-6">
+            <div className="flex flex-wrap items-center gap-3 justify-center">
+              {GENRES.map((g) => (
+                <button
+                  key={g}
+                  onClick={() => toggleGenre(g)}
+                  className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all duration-300 border ${
+                    selectedGenres.includes(g)
+                      ? "bg-cyber-teal border-cyber-teal text-black shadow-[0_0_15px_rgba(45,212,191,0.4)]"
+                      : "bg-white/5 border-white/10 text-white/60 hover:border-white/30"
+                  }`}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 justify-center">
+              {["", "Airing", "Completed", "Upcoming"].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => {
+                    setStatus(s);
+                    setPage(1);
+                  }}
+                  className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all duration-300 border ${
+                    status === s
+                      ? "bg-cyber-amber border-cyber-amber text-black shadow-[0_0_15px_rgba(245,158,11,0.4)]"
+                      : "bg-white/5 border-white/10 text-white/60 hover:border-white/30"
+                  }`}
+                >
+                  {s || "All Status"}
+                </button>
+              ))}
               <button
-                onClick={() => setShowFilters(!showFilters)}
-                className={`p-5 rounded-2xl flex items-center space-x-2 transition-all ${showFilters ? "bg-cyber-teal text-cyber-black" : "hover:bg-gray-100 dark:hover:bg-cyber-gray text-gray-400"}`}
+                onClick={clearFilters}
+                className="px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-colors"
               >
-                <Filter size={20} />
-                <span className="font-black text-xs uppercase tracking-widest hidden md:inline">
-                  Filters
-                </span>
+                Reset
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="container mx-auto px-6 mt-12">
-        <AnimatePresence>
-          {showFilters && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="bg-gray-50 dark:bg-cyber-gray p-8 rounded-[40px] mb-12 grid grid-cols-1 md:grid-cols-2 gap-10 overflow-hidden border border-gray-100 dark:border-gray-800"
-            >
-              <div>
-                <label className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-[0.3em] text-gray-400 mb-4">
-                  <Layers size={14} />
-                  <span>Genre Protocol</span>
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {["", ...genres].map((g) => (
-                    <button
-                      key={g}
-                      onClick={() =>
-                        setParams({ ...params, genre: g, page: 1 })
-                      }
-                      className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${params.genre === g ? "bg-cyber-teal text-cyber-black" : "bg-white dark:bg-cyber-black dark:text-gray-400 border border-gray-200 dark:border-gray-800 hover:border-cyber-teal"}`}
-                    >
-                      {g || "OFFLINE"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="flex items-center space-x-2 text-[10px] font-black uppercase tracking-[0.3em] text-gray-400 mb-4">
-                  <Zap size={14} />
-                  <span>Status Stream</span>
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {["", "Airing", "Completed", "Upcoming"].map((s) => (
-                    <button
-                      key={s}
-                      onClick={() =>
-                        setParams({ ...params, status: s, page: 1 })
-                      }
-                      className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${params.status === s ? "bg-cyber-amber text-cyber-black" : "bg-white dark:bg-cyber-black dark:text-gray-400 border border-gray-200 dark:border-gray-800 hover:border-cyber-amber"}`}
-                    >
-                      {s || "ALL FREQUENCIES"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {loading ? (
-          <div className="flex flex-col items-center justify-center py-40">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-              className="h-16 w-16 border-4 border-cyber-teal border-t-transparent rounded-full mb-6"
-            />
-            <span className="text-xs font-black tracking-[0.5em] text-cyber-teal uppercase animate-pulse">
-              Synchronizing Data...
-            </span>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-8">
-            {animes.map((anime, idx) => (
-              <AnimeCard key={anime._id} anime={anime} index={idx} />
-            ))}
+      {/* Results Section */}
+      <div className="container mx-auto px-6 mt-8">
+        {!isInitialState && (
+          <div className="flex items-center justify-between mb-8 pb-4 border-b border-white/5">
+            <div className="flex items-center gap-2">
+              <LayoutGrid size={20} className="text-cyber-teal" />
+              <h2 className="text-sm font-black uppercase tracking-[0.2em] italic">
+                Search Results
+              </h2>
+            </div>
+            <AnimatePresence mode="wait">
+              <motion.span
+                key={animes.length}
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="text-[10px] font-bold text-white/40 uppercase tracking-widest"
+              >
+                {animes.length} Titles Found
+              </motion.span>
+            </AnimatePresence>
           </div>
         )}
 
-        {!loading && animes.length === 0 && (
-          <div className="text-center py-40 bg-gray-50 dark:bg-cyber-gray rounded-[50px] border border-dashed border-gray-200 dark:border-gray-700">
-            <X size={64} className="mx-auto text-gray-300 mb-6" />
-            <h3 className="text-2xl font-black dark:text-white uppercase italic tracking-widest">
-              No Signals Found
-            </h3>
-            <p className="text-gray-500 mt-2 uppercase text-xs font-bold tracking-widest">
-              Adjust your filters to scan different frequencies
-            </p>
+        {loading && animes.length === 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 sm:gap-8">
+            {[...Array(10)].map((_, i) => (
+              <div
+                key={i}
+                className="aspect-3/4 bg-white/5 rounded-2xl animate-pulse"
+              />
+            ))}
           </div>
+        ) : isInitialState ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="py-32 text-center"
+          >
+            <Zap
+              size={48}
+              className="mx-auto text-white/10 mb-6 animate-pulse"
+            />
+            <p className="text-xl font-bold text-white/40 uppercase italic tracking-tighter">
+              Awaiting transmission... <br />
+              <span className="text-sm">
+                Initiate resonance to discover titles.
+              </span>
+            </p>
+          </motion.div>
+        ) : animes.length === 0 ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="py-32 text-center"
+          >
+            <Sparkles size={48} className="mx-auto text-white/5 mb-6" />
+            <p className="text-xl font-bold text-white/20 uppercase italic tracking-tighter">
+              No results found for{" "}
+              <span className="text-cyber-teal">
+                {debouncedKeyword
+                  ? `"${debouncedKeyword}"`
+                  : "selected filters"}
+              </span>
+            </p>
+          </motion.div>
+        ) : (
+          <>
+            <motion.div
+              layout
+              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6 sm:gap-8"
+            >
+              <AnimatePresence mode="popLayout">
+                {animes.map((a, idx) => (
+                  <AnimeCard
+                    key={`${a._id}-${idx}`}
+                    anime={a}
+                    index={idx % 20}
+                  />
+                ))}
+              </AnimatePresence>
+            </motion.div>
+
+            {hasMore && (
+              <div className="flex justify-center mt-20">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={loading}
+                  className="group relative px-12 py-4 bg-transparent"
+                >
+                  <div className="absolute inset-0 bg-cyber-teal rounded-full blur-lg opacity-20 group-hover:opacity-40 transition-opacity" />
+                  <div className="relative px-8 py-3 bg-black border border-cyber-teal/50 rounded-full text-cyber-teal font-black uppercase tracking-widest text-xs flex items-center gap-2 overflow-hidden">
+                    {loading ? (
+                      <Loader2 className="animate-spin" size={16} />
+                    ) : (
+                      <>
+                        Synchronize More <Zap size={14} fill="currentColor" />
+                      </>
+                    )}
+                  </div>
+                </motion.button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

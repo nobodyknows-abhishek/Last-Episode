@@ -64,8 +64,30 @@ const removeFromWatchlist = async (req, res) => {
   }
 };
 
+const updateWatchlistStatus = async (req, res) => {
+  const { status } = req.body;
+  const entry = await Watchlist.findById(req.params.id);
+
+  if (entry) {
+    if (entry.user.toString() !== req.user._id.toString()) {
+      res.status(401).json({ message: "User not authorized" });
+      return;
+    }
+
+    entry.status = status || entry.status;
+    const updatedEntry = await entry.save();
+
+    // Populate anime details before returning
+    await updatedEntry.populate("anime");
+    res.json(updatedEntry);
+  } else {
+    res.status(404).json({ message: "Watchlist entry not found" });
+  }
+};
+
 module.exports = {
   getMyWatchlist,
   addToWatchlist,
   removeFromWatchlist,
+  updateWatchlistStatus,
 };
