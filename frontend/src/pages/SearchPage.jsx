@@ -90,6 +90,7 @@ const SearchPage = () => {
           score: it.score,
           status: it.status,
           episodes: it.episodes,
+          lastKnownEpisodes: it.lastKnownEpisodes || 0,
         }));
 
         if (append) setAnimes((prev) => [...prev, ...items]);
@@ -107,6 +108,7 @@ const SearchPage = () => {
   );
 
   useEffect(() => {
+    window.scrollTo(0, 0);
     setPage(1);
     fetchSearch(1, false);
   }, [fetchSearch]);

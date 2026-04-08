@@ -20,6 +20,7 @@ const animeSchema = mongoose.Schema(
     isTrending: { type: Boolean, default: false },
     isTopRated: { type: Boolean, default: false },
     isAiring: { type: Boolean, default: false },
+    lastKnownEpisodes: { type: Number, default: 0 },
     lastUpdated: { type: Date, default: Date.now },
   },
   {

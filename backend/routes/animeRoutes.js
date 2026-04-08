@@ -5,6 +5,7 @@ const {
   getAnimeById,
   getTrendingAnimes,
   getTopRatedAnimes,
+  getLatestAnimes,
   getAnimeEpisodes,
   searchAnimeGlobally,
   getMalsyncData,
@@ -13,6 +14,7 @@ const {
 router.get("/", getAnimes);
 router.get("/trending", getTrendingAnimes);
 router.get("/top-rated", getTopRatedAnimes);
+router.get("/latest", getLatestAnimes);
 router.get("/search", searchAnimeGlobally);
 router.get("/malsync/:id", getMalsyncData);
 router.get("/:id", getAnimeById);

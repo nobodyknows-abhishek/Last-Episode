@@ -25,4 +25,11 @@ export const notificationService = {
     );
     return response.data;
   },
+
+  deleteNotification: async (id, token) => {
+    const response = await axios.delete(`/api/notifications/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  },
 };

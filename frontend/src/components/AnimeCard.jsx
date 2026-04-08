@@ -52,7 +52,12 @@ const AnimeCard = ({ anime, index }) => {
               {anime.status === "Currently Airing" ? "LIVE" : "VOD"}
             </span>
             <span className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">
-              {anime.episodes ? `${anime.episodes} Episodes` : "Unknown Length"}
+              {(() => {
+                const total = anime.episodes || "?";
+                if (anime.status === "Finished Airing" || anime.status === "Completed") return `${total}/${total} Episodes`;
+                const released = anime.lastKnownEpisodes || "?";
+                return `${released}/${total} Episodes`;
+              })()}
             </span>
           </div>
         </div>

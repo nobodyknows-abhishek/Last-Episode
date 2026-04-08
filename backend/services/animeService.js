@@ -54,11 +54,26 @@ const syncAnimeData = async (io) => {
 
       const anilistImages = await jikanService.fetchAniListImages(item.mal_id);
 
+      const existingAnime = await Anime.findOne({ malId: item.mal_id });
+      const oldLastKnown = existingAnime ? existingAnime.lastKnownEpisodes : 0;
+
+      let calculatedLastKnown = (item.status === "Finished Airing" || item.status === "Completed") ? (item.episodes || 0) : oldLastKnown;
+      
+      if (item.airing) {
+        if (anilistImages?.nextAiringEpisode?.episode) {
+          calculatedLastKnown = anilistImages.nextAiringEpisode.episode - 1;
+        } else {
+          // If we don't have AniList airing info, preserve what we have
+          calculatedLastKnown = oldLastKnown;
+        }
+      }
+
       const animeData = {
         malId: item.mal_id,
         title: item.title,
         synopsis: item.synopsis || "No synopsis available.",
         episodes: item.episodes || 0,
+        lastKnownEpisodes: calculatedLastKnown,
         genres: (item.genres || []).map((g) => g.name),
         status: item.status || "Unknown",
         rating: item.rating || "Not Rated",
@@ -75,10 +90,6 @@ const syncAnimeData = async (io) => {
         lastUpdated: new Date(),
       };
 
-      const existingAnime = await Anime.findOne({ malId: item.mal_id });
-      const oldEpisodes = existingAnime ? existingAnime.episodes : 0;
-      const newEpisodes = animeData.episodes || 0;
-
       const updatedAnime = await Anime.findOneAndUpdate(
         { malId: item.mal_id },
         animeData,
@@ -88,13 +99,14 @@ const syncAnimeData = async (io) => {
         },
       );
 
-      if (existingAnime && newEpisodes > oldEpisodes) {
+      // Notification logic: only notify if the RELEASED count (calculatedLastKnown) increased
+      if (existingAnime && calculatedLastKnown > oldLastKnown) {
         const watchlists = await Watchlist.find({ anime: updatedAnime._id });
         if (watchlists.length > 0) {
           const notifications = watchlists.map((w) => ({
             user: w.user,
             anime: updatedAnime._id,
-            message: `New episode released for ${updatedAnime.title}! (Ep ${newEpisodes})`,
+            message: `🎉 New episode released for ${updatedAnime.title}! (Episode ${calculatedLastKnown})`,
             type: "episode_release",
             isRead: false,
           }));

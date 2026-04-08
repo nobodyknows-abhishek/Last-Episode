@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useSocket } from "../context/SocketContext.jsx";
 import {
   Star,
   Clock,
@@ -27,6 +28,7 @@ const AnimeDetails = () => {
   const [activeEpisode, setActiveEpisode] = useState(null);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
+  const { socket } = useSocket();
   const [isInWatchlist, setIsInWatchlist] = useState(false);
   const navigate = useNavigate();
 
@@ -35,6 +37,25 @@ const AnimeDetails = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(100);
   const [episodesLoading, setEpisodesLoading] = useState(false);
+  const [releasedEpisodeCount, setReleasedEpisodeCount] = useState(0);
+  const [hasNextPage, setHasNextPage] = useState(false);
+
+  useEffect(() => {
+    if (streamData && streamData.Sites) {
+      const extractEpisodeNumber = (title) => {
+        const match = title.match(/(?:episode|ep|e)?\s*(\d+)/i);
+        return match ? parseInt(match[1], 10) : 0;
+      };
+      let allEpisodesMap = new Map();
+      Object.values(streamData.Sites).forEach((provider) => {
+        Object.values(provider).forEach((ep) => {
+          const epNum = extractEpisodeNumber(ep.title || ep.identifier);
+          if (epNum > 0) allEpisodesMap.set(epNum, ep);
+        });
+      });
+      setReleasedEpisodeCount(allEpisodesMap.size);
+    }
+  }, [streamData]);
 
   useEffect(() => {
     const fetchAnime = async () => {
@@ -74,6 +95,7 @@ const AnimeDetails = () => {
           // Set pagination info
           if (episodesRes.data?.pagination) {
             setTotalPages(episodesRes.data.pagination.last_visible_page || 1);
+            setHasNextPage(Boolean(episodesRes.data.pagination.has_next_page || episodesRes.data.data?.length === itemsPerPage));
             if (episodesRes.data.pagination.items?.per_page) {
               setItemsPerPage(episodesRes.data.pagination.items.per_page);
             }
@@ -118,6 +140,7 @@ const AnimeDetails = () => {
         setCurrentPage(page);
         if (response.data?.pagination) {
           setTotalPages(response.data.pagination.last_visible_page || 1);
+          setHasNextPage(Boolean(response.data.pagination.has_next_page || response.data.data?.length === itemsPerPage));
           if (response.data.pagination.items?.per_page) {
             setItemsPerPage(response.data.pagination.items.per_page);
           }
@@ -129,6 +152,23 @@ const AnimeDetails = () => {
       setEpisodesLoading(false);
     }
   };
+
+  // Live episode refresh: when a new_notification arrives for THIS anime, silently re-fetch episodes
+  useEffect(() => {
+    if (!socket || !anime) return;
+
+    const handleNewNotification = (notif) => {
+      if (
+        notif.anime?.malId === anime.malId ||
+        notif.anime?._id === anime._id
+      ) {
+        fetchEpisodes(currentPage);
+      }
+    };
+
+    socket.on("new_notification", handleNewNotification);
+    return () => socket.off("new_notification", handleNewNotification);
+  }, [socket, anime, currentPage]);
 
   const addToWatchlist = async () => {
     if (!user) return alert("Please login to track anime");
@@ -308,7 +348,12 @@ const AnimeDetails = () => {
                   {
                     icon: Hash,
                     label: "Episodes",
-                    value: anime.episodes || "??",
+                    value: (() => {
+                      const total = anime.episodes || "?";
+                      if (anime.status === "Finished Airing" || anime.status === "Completed") return `${total}/${total}`;
+                      const released = releasedEpisodeCount > 0 ? releasedEpisodeCount : (anime.lastKnownEpisodes || "?");
+                      return `${released}/${total}`;
+                    })(),
                     color: "text-blue-500",
                   },
                   {
@@ -370,7 +415,8 @@ const AnimeDetails = () => {
                   <Loader2 className="animate-spin text-cyber-teal" size={40} />
                 </div>
               ) : episodes.length > 0 ? (
-                <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                <>
+                  <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
                   {episodes.map((ep, idx) => {
                     const globalEpisodeIndex =
                       (currentPage - 1) * itemsPerPage + idx + 1;
@@ -424,30 +470,31 @@ const AnimeDetails = () => {
                       </div>
                     );
                   })}
-
-                  {/* Pagination Controls */}
-                  {totalPages > 1 && (
-                    <div className="flex justify-center items-center gap-4 py-4">
-                      <button
-                        onClick={() => fetchEpisodes(currentPage - 1)}
-                        disabled={currentPage === 1 || episodesLoading}
-                        className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 disabled:opacity-50 hover:bg-cyber-teal hover:text-white transition-colors"
-                      >
-                        <ChevronLeft size={24} />
-                      </button>
-                      <div className="text-gray-600 dark:text-gray-300 font-medium font-mono">
-                        Page {currentPage} of {totalPages}
-                      </div>
-                      <button
-                        onClick={() => fetchEpisodes(currentPage + 1)}
-                        disabled={currentPage === totalPages || episodesLoading}
-                        className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 disabled:opacity-50 hover:bg-cyber-teal hover:text-white transition-colors"
-                      >
-                        <ChevronRight size={24} />
-                      </button>
-                    </div>
-                  )}
                 </div>
+
+                {/* Pagination Controls */}
+                {(totalPages > 1 || hasNextPage || currentPage > 1) && (
+                  <div className="flex justify-center items-center gap-4 py-8 border-t border-gray-100 dark:border-gray-800 mt-6">
+                    <button
+                      onClick={() => fetchEpisodes(currentPage - 1)}
+                      disabled={currentPage === 1 || episodesLoading}
+                      className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 disabled:opacity-50 hover:bg-cyber-teal hover:text-white transition-colors"
+                    >
+                      <ChevronLeft size={24} />
+                    </button>
+                    <div className="text-gray-600 dark:text-gray-300 font-medium font-mono">
+                      Page {currentPage} {totalPages > 1 && `of ${totalPages}`}
+                    </div>
+                    <button
+                      onClick={() => fetchEpisodes(currentPage + 1)}
+                      disabled={!hasNextPage || episodesLoading}
+                      className="p-2 rounded-full bg-gray-100 dark:bg-gray-800 disabled:opacity-50 hover:bg-cyber-teal hover:text-white transition-colors"
+                    >
+                      <ChevronRight size={24} />
+                    </button>
+                  </div>
+                )}
+              </>
               ) : (
                 <div className="p-8 bg-gray-50 dark:bg-cyber-gray rounded-3xl text-center border border-gray-100 dark:border-gray-800">
                   <p className="text-gray-500 dark:text-gray-400 italic">

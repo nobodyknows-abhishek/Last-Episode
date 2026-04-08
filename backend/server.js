@@ -114,6 +114,28 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Voice Chat Signaling (relayed peer-to-peer, audio-only)
+  socket.on("voice_join", ({ roomId, socketId }) => {
+    // Broadcast to everyone else in the room so they know to connect voice
+    socket.to(roomId).emit("voice_user_joined", socketId);
+  });
+
+  socket.on("voice_leave", ({ roomId, socketId }) => {
+    socket.to(roomId).emit("voice_user_left", socketId);
+  });
+
+  socket.on("voice_offer", (payload) => {
+    io.to(payload.target).emit("voice_offer", payload);
+  });
+
+  socket.on("voice_answer", (payload) => {
+    io.to(payload.target).emit("voice_answer", payload);
+  });
+
+  socket.on("voice_ice", (payload) => {
+    io.to(payload.target).emit("voice_ice", payload);
+  });
+
   // WebRTC Signaling
   socket.on("offer", (payload) => {
     io.to(payload.target).emit("offer", payload);

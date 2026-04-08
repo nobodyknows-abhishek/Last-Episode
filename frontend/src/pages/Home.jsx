@@ -26,7 +26,7 @@ const Home = () => {
       try {
         const [trendingRes, latestRes] = await Promise.all([
           axios.get("/api/anime/trending?limit=10&page=1"),
-          axios.get("/api/anime?pageSize=20&page=1"),
+          axios.get("/api/anime/latest?pageSize=20&page=1"),
         ]);
         setTrending(trendingRes.data);
         if (trendingRes.data.length < 10) {
@@ -81,7 +81,7 @@ const Home = () => {
     setLoadingMoreLatest(true);
     try {
       const nextPage = latestPage + 1;
-      const res = await axios.get(`/api/anime?pageSize=20&page=${nextPage}`);
+      const res = await axios.get(`/api/anime/latest?pageSize=20&page=${nextPage}`);
       const newAnimes = res.data.animes;
       if (newAnimes.length === 0) {
         setHasMoreLatest(false);
@@ -209,7 +209,7 @@ const Home = () => {
           <div className="flex justify-between items-end mb-12">
             <div>
               <h2 className="text-3xl sm:text-4xl md:text-5xl font-black dark:text-white flex items-center tracking-tighter italic uppercase">
-                Latest{" "}
+                Latest Airing{" "}
                 <Sparkles className="ml-3 sm:ml-4 text-cyber-amber" size={32} />
               </h2>
             </div>

@@ -1,4 +1,18 @@
 const axios = require("axios");
+const axiosRetry = require("axios-retry").default || require("axios-retry");
+
+// Configure axios-retry for our global axios instance to handle 429 Too Many Requests
+axiosRetry(axios, {
+  retries: 5, // Number of retries
+  retryDelay: (retryCount) => {
+    console.log(`Rate limit or network error hit. Retrying attempt ${retryCount}...`);
+    return retryCount * 2000; // wait 2s, 4s, 6s, 8s, 10s
+  },
+  retryCondition: (error) => {
+    // Retry on 429 (Too Many Requests) or standard network errors
+    return error.response?.status === 429 || axiosRetry.isNetworkOrIdempotentRequestError(error);
+  },
+});
 
 const JIKAN_BASE_URL = "https://api.jikan.moe/v4";
 
@@ -118,6 +132,9 @@ const fetchAniListImages = async (malId) => {
           bannerImage
           coverImage {
             extraLarge
+          }
+          nextAiringEpisode {
+            episode
           }
         }
       }

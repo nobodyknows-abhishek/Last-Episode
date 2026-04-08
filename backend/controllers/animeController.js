@@ -138,6 +138,29 @@ const getTopRatedAnimes = async (req, res) => {
   res.json(animes);
 };
 
+const getLatestAnimes = async (req, res) => {
+  const pageSize = Number(req.query.pageSize) || 20;
+  const page = Number(req.query.page) || 1;
+  const skip = (page - 1) * pageSize;
+
+  try {
+    const count = await Anime.countDocuments({ isAiring: true });
+    const animes = await Anime.find({ isAiring: true })
+      .skip(skip)
+      .limit(pageSize)
+      .sort({ lastUpdated: -1, score: -1 });
+
+    res.json({
+      animes,
+      page,
+      pages: Math.ceil(count / pageSize),
+      total: count,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error fetching latest anime" });
+  }
+};
+
 const { fetchAnimeEpisodes } = require("../services/jikanService");
 
 const getAnimeEpisodes = async (req, res) => {
@@ -180,6 +203,23 @@ const searchAnimeGlobally = async (req, res) => {
     // Jikan returns top/default list if q is empty, which is fine.
 
     const data = await fetchAnimeSearch(query, page, filters);
+
+    // Inject lastKnownEpisodes from our DB if available
+    if (data.data && data.data.length > 0) {
+      const malIds = data.data.map((item) => item.mal_id);
+      const localAnimes = await Anime.find({ malId: { $in: malIds } }).select(
+        "malId lastKnownEpisodes",
+      );
+      const localMap = new Map(
+        localAnimes.map((a) => [a.malId, a.lastKnownEpisodes]),
+      );
+
+      data.data = data.data.map((item) => ({
+        ...item,
+        lastKnownEpisodes: localMap.get(item.mal_id) || null,
+      }));
+    }
+
     res.json(data);
   } catch (error) {
     console.error(
@@ -220,6 +260,7 @@ module.exports = {
   getAnimeById,
   getTrendingAnimes,
   getTopRatedAnimes,
+  getLatestAnimes,
   getAnimeEpisodes,
   searchAnimeGlobally,
   getMalsyncData,

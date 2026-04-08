@@ -18,6 +18,7 @@ import SearchPage from "./pages/SearchPage";
 import WatchParty from "./pages/WatchParty";
 import PageTransition from "./components/PageTransition";
 import SmoothScrolling from "./components/SmoothScrolling";
+import NotificationToast from "./components/NotificationToast";
 
 const AnimatedRoutes = () => {
   const location = useLocation();
@@ -100,6 +101,7 @@ function App() {
                 </footer>
               </div>
             </Router>
+            <NotificationToast />
           </SmoothScrolling>
         </SocketProvider>
       </AuthProvider>
