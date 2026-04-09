@@ -11,6 +11,11 @@ const {
   getMalsyncData,
 } = require("../controllers/animeController");
 
+router.use((req, res, next) => {
+  console.log(`Anime Route hit: ${req.method} ${req.url}`);
+  next();
+});
+
 router.get("/", getAnimes);
 router.get("/trending", getTrendingAnimes);
 router.get("/top-rated", getTopRatedAnimes);

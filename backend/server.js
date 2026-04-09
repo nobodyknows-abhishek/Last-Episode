@@ -19,6 +19,8 @@ const allowedOrigins = [
   "http://localhost:5173",
   "https://the-last-episode.onrender.com",
   "https://the-last-episode.onrender.com/",
+  "https://last-episode.onrender.com",
+  "https://last-episode.onrender.com/",
 ];
 
 const app = express();
@@ -57,6 +59,12 @@ app.use("/api/notifications", notificationRoutes);
 
 app.get("/", (req, res) => {
   res.send("API is running...");
+});
+
+// 404 Handler for API routes
+app.use("/api/*", (req, res) => {
+  console.log(`404 at ${req.originalUrl}`);
+  res.status(404).json({ message: `API route not found: ${req.originalUrl}` });
 });
 
 // Keep track of rooms and their users

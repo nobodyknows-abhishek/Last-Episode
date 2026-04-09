@@ -38,7 +38,7 @@ const NotificationMenu = () => {
   }, []);
 
   const fetchNotifications = async () => {
-    if (!user?.token) return;
+    if (!user || !user.token) return;
     try {
       const data = await notificationService.getNotifications(user.token);
       setNotifications(data);
@@ -102,9 +102,9 @@ const NotificationMenu = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="absolute -right-12 sm:right-0 top-full mt-3 w-[340px] sm:w-96 rounded-2xl bg-cyber-black/95 backdrop-blur-2xl border border-white/10 shadow-2xl overflow-hidden z-50 origin-top"
+            className="absolute -right-12 sm:right-0 top-full mt-3 w-85 sm:w-96 rounded-2xl bg-cyber-black/95 backdrop-blur-2xl border border-white/10 shadow-2xl overflow-hidden z-50 origin-top"
           >
-            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-gradient-to-r from-white/5 to-transparent">
+            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-linear-to-r from-white/5 to-transparent">
               <h3 className="font-bold text-white flex items-center gap-2">
                 <Bell size={16} className="text-cyber-amber" />
                 Notifications
@@ -146,7 +146,7 @@ const NotificationMenu = () => {
                     >
                       <div className="flex gap-3">
                         {notification.anime?.imageUrl && (
-                          <div className="flex-shrink-0 w-12 h-16 rounded overflow-hidden shadow">
+                          <div className="shrink-0 w-12 h-16 rounded overflow-hidden shadow">
                             <img
                               src={notification.anime.imageUrl}
                               alt={notification.anime.title || "Anime"}
@@ -178,7 +178,7 @@ const NotificationMenu = () => {
                         {!notification.isRead && (
                           <button
                             onClick={() => handleMarkAsRead(notification._id)}
-                            className="flex-shrink-0 self-center p-2 text-gray-500 hover:text-cyber-teal hover:bg-white/10 rounded-full transition-colors"
+                            className="shrink-0 self-center p-2 text-gray-500 hover:text-cyber-teal hover:bg-white/10 rounded-full transition-colors"
                             title="Mark as read"
                           >
                             <Check size={16} />
