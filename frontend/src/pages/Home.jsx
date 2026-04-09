@@ -24,9 +24,13 @@ const Home = () => {
   useEffect(() => {
     const fetchAnimes = async () => {
       try {
+        const trendingUrl = "/api/anime/trending?limit=10&page=1";
+        const latestUrl = "/api/anime/latest?pageSize=20&page=1";
+        console.log("Fetching Trending from:", axios.defaults.baseURL + trendingUrl);
+        console.log("Fetching Latest from:", axios.defaults.baseURL + latestUrl);
         const [trendingRes, latestRes] = await Promise.all([
-          axios.get("/api/anime/trending?limit=10&page=1"),
-          axios.get("/api/anime/latest?pageSize=20&page=1"),
+          axios.get(trendingUrl),
+          axios.get(latestUrl),
         ]);
         setTrending(trendingRes.data);
         if (trendingRes.data.length < 10) {

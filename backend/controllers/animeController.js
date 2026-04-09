@@ -1,6 +1,13 @@
 const Anime = require("../models/animeModel");
+const mongoose = require("mongoose");
+const {
+  fetchAnimeSearch,
+  fetchAnimeByMalId,
+  fetchAnimeEpisodes,
+} = require("../services/jikanService");
 
 const getAnimes = async (req, res) => {
+  console.log("getAnimes controller hit with query:", req.query);
   const pageSize = Number(req.query.pageSize) || 20;
   const page = Number(req.query.page) || 1;
 
@@ -56,11 +63,7 @@ const getAnimes = async (req, res) => {
   }
 };
 
-const mongoose = require("mongoose");
-const {
-  fetchAnimeSearch,
-  fetchAnimeByMalId,
-} = require("../services/jikanService");
+
 
 const getAnimeById = async (req, res) => {
   const { id } = req.params;
@@ -139,6 +142,7 @@ const getTopRatedAnimes = async (req, res) => {
 };
 
 const getLatestAnimes = async (req, res) => {
+  console.log("getLatestAnimes controller hit with query:", req.query);
   const pageSize = Number(req.query.pageSize) || 20;
   const page = Number(req.query.page) || 1;
   const skip = (page - 1) * pageSize;
@@ -161,7 +165,7 @@ const getLatestAnimes = async (req, res) => {
   }
 };
 
-const { fetchAnimeEpisodes } = require("../services/jikanService");
+
 
 const getAnimeEpisodes = async (req, res) => {
   try {
