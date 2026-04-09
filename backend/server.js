@@ -67,8 +67,8 @@ app.get("/", (req, res) => {
 });
 
 // 404 Handler for API routes
-app.all("/api/:splat*", (req, res) => {
-  console.log(`404 at ${req.originalUrl} (splat: ${req.params.splat})`);
+app.all(/^\/api\/.*$/, (req, res) => {
+  console.log(`404 at ${req.originalUrl}`);
   res.status(404).json({ message: `API route not found: ${req.originalUrl}` });
 });
 
